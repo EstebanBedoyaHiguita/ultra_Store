@@ -10,19 +10,23 @@ export async function GET() {
   }
 
   try {
-    const { data, error } = await supabaseAdmin
+    const { data: rows, error, status, statusText } = await supabaseAdmin
       .from('chat_rooms')
-      .select('count', { count: 'exact', head: true })
-    results.chat_rooms = error ? { error: error.message, code: error.code } : { ok: true, count: data }
+      .select('id')
+      .limit(1)
+    results.chat_rooms = error
+      ? { error: error.message, code: error.code, details: error.details, hint: error.hint, status, statusText }
+      : { ok: true, rows: rows?.length ?? 0 }
   } catch (e) {
     results.chat_rooms = { exception: String(e) }
   }
 
   try {
-    const { data, error } = await supabaseAdmin
+    const { error: ordersError } = await supabaseAdmin
       .from('orders')
-      .select('count', { count: 'exact', head: true })
-    results.orders = error ? { error: error.message, code: error.code } : { ok: true }
+      .select('id')
+      .limit(1)
+    results.orders = ordersError ? { error: ordersError.message, code: ordersError.code } : { ok: true }
   } catch (e) {
     results.orders = { exception: String(e) }
   }
