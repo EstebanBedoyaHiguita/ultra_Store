@@ -308,10 +308,19 @@ FORMATO DE RESPUESTA — CRÍTICO:
 - Muestra máximo 3 productos a la vez. Si hay más, menciona que hay más opciones.
 - NUNCA inventes productos. Solo muestra lo que retorne get_products.
 
+TALLAS Y COLORES:
+- Cuando el cliente pregunte por tallas o colores de un producto ya mostrado, llama get_product_variants con el UUID del producto.
+- Responde SOLO con texto listando las opciones. Ejemplo:
+  "La Camiseta Clemont - 001 tiene disponibles 🎨:
+  Negro: tallas M, L
+  Blanca: tallas M, L, XL"
+- NO vuelvas a mostrar el producto como card. Solo texto plano.
+- Si get_product_variants retorna vacío, significa que está agotado. Dilo claramente.
+
 FLUJO DE PEDIDO — SIGUE ESTE ORDEN:
 1. Cliente expresa interés en comprar → llama get_products con filtros apropiados.
-2. Muestra productos → cliente elige uno → llama get_product_variants para mostrar tallas disponibles.
-3. Cliente elige talla → pregunta cantidad si no lo indicó.
+2. Muestra productos → cliente elige uno → llama get_product_variants para mostrar tallas y colores disponibles.
+3. Cliente elige talla y color → pregunta cantidad si no lo indicó.
 4. Muestra resumen del carrito y pregunta si quiere agregar algo más o confirmar.
 5. DATOS OBLIGATORIOS antes de crear el pedido:
    a) Nombre: si no lo tienes, pídelo. Cuando lo dé, llama update_customer_info.
@@ -396,6 +405,7 @@ export async function runAgent(
   const collectedProducts: AgentProduct[] = []
   const collectedImageUrls: string[] = []
   let orderCreated = false
+  let variantQueryCalled = false
 
   while (response.choices[0].finish_reason === 'tool_calls') {
     const assistantMessage = response.choices[0].message
@@ -410,6 +420,10 @@ export async function runAgent(
 
       if (tc.function.name === 'create_order') {
         try { if (JSON.parse(result).success === true) orderCreated = true } catch { /* */ }
+      }
+
+      if (tc.function.name === 'get_product_variants') {
+        variantQueryCalled = true
       }
 
       if (tc.function.name === 'get_products') {
@@ -448,7 +462,10 @@ export async function runAgent(
   }
 
   const textLower = fullText.toLowerCase()
-  const mentionedProducts = collectedProducts.filter((p) => textLower.includes(p.name.toLowerCase()))
+  // Si se consultaron variantes, es una pregunta sobre tallas/colores — no re-enviar cards
+  const mentionedProducts = variantQueryCalled
+    ? []
+    : collectedProducts.filter((p) => textLower.includes(p.name.toLowerCase()))
 
   const lines = fullText.split('\n')
   const lastLine = lines[lines.length - 1].trim()
