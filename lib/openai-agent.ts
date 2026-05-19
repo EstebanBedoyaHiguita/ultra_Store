@@ -147,10 +147,12 @@ async function executeTool(
           gender: args.gender as string | undefined,
           search: args.search as string | undefined,
         })
+        console.log('[get_products] count:', products.length, '| first product variants:', (products[0] as unknown as Record<string, unknown>)?.variants)
         return JSON.stringify(products)
       }
       case 'get_product_variants': {
         const variants = await getProductVariants(args.product_id as string)
+        console.log('[get_product_variants] product_id:', args.product_id, '| count:', variants.length, '| data:', JSON.stringify(variants))
         return JSON.stringify(variants)
       }
       case 'update_customer_info': {
