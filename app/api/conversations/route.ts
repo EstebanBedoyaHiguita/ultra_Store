@@ -18,6 +18,9 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    console.error('[conversations GET] Supabase error:', error.code, error.message, error.details)
+    return NextResponse.json({ error: error.message, code: error.code }, { status: 500 })
+  }
   return NextResponse.json(data ?? [])
 }
