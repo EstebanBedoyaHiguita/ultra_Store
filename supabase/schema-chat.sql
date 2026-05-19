@@ -79,6 +79,12 @@ CREATE POLICY "service_role_all_chat_messages" ON chat_messages      FOR ALL TO 
 CREATE POLICY "service_role_all_agent_config"  ON chat_agent_config  FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_role_all_close_reasons" ON chat_close_reasons FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- Grants explícitos para service_role
+GRANT ALL ON public.chat_rooms TO service_role;
+GRANT ALL ON public.chat_messages TO service_role;
+GRANT ALL ON public.chat_agent_config TO service_role;
+GRANT ALL ON public.chat_close_reasons TO service_role;
+
 -- Motivos de cierre por defecto
 INSERT INTO chat_close_reasons (name) VALUES
   ('Pedido realizado'),
