@@ -31,5 +31,17 @@ export async function GET() {
     results.orders = { exception: String(e) }
   }
 
+  try {
+    const { data: variants, error: varError } = await supabaseAdmin
+      .from('product_variants')
+      .select('id, stock')
+      .limit(3)
+    results.product_variants = varError
+      ? { error: varError.message, code: varError.code }
+      : { ok: true, sample: variants }
+  } catch (e) {
+    results.product_variants = { exception: String(e) }
+  }
+
   return NextResponse.json(results)
 }
