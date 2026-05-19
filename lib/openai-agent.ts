@@ -304,7 +304,7 @@ FORMATO DE RESPUESTA — CRÍTICO:
   Talla disponibles: S, M, L, XL
   Camiseta icónica de Supreme en algodón premium
   https://url-imagen.jpg
-- NUNCA digas que no puedes mostrar imágenes. Las imágenes se envían automáticamente.
+- NUNCA digas que no puedes mostrar imágenes. Las imágenes se envían SIEMPRE automáticamente cuando muestras un producto. Si el cliente pregunta por fotos, llama get_products y muestra el producto.
 - Muestra máximo 3 productos a la vez. Si hay más, menciona que hay más opciones.
 - NUNCA inventes productos. Solo muestra lo que retorne get_products.
 
@@ -406,6 +406,7 @@ export async function runAgent(
   const collectedImageUrls: string[] = []
   let orderCreated = false
   let variantQueryCalled = false
+  let productsQueryCalled = false
 
   while (response.choices[0].finish_reason === 'tool_calls') {
     const assistantMessage = response.choices[0].message
@@ -427,6 +428,7 @@ export async function runAgent(
       }
 
       if (tc.function.name === 'get_products') {
+        productsQueryCalled = true
         try {
           const raw = JSON.parse(result)
           const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
@@ -462,8 +464,10 @@ export async function runAgent(
   }
 
   const textLower = fullText.toLowerCase()
-  // Si se consultaron variantes, es una pregunta sobre tallas/colores — no re-enviar cards
-  const mentionedProducts = variantQueryCalled
+  // Solo suprimir cards si se consultaron variantes SIN una nueva búsqueda de productos
+  // (pregunta de seguimiento sobre algo ya mostrado, no primera presentación)
+  const suppressCards = variantQueryCalled && !productsQueryCalled
+  const mentionedProducts = suppressCards
     ? []
     : collectedProducts.filter((p) => textLower.includes(p.name.toLowerCase()))
 
