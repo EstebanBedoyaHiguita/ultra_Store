@@ -19,10 +19,10 @@ export async function getProducts(filters?: {
   let query = supabaseAdmin
     .from('products')
     .select(`
-      id, reference, name, slug, description, base_price, gender, images, is_active,
-      brand:brands(id, name, logo_url),
-      category:categories(id, name, slug),
-      variants:product_variants(id, product_id, size, color, color_hex, stock, price_override, sku)
+      id, name, description, base_price, gender, images,
+      brand:brands(name),
+      category:categories(name, slug),
+      variants:product_variants(id, size, color, stock)
     `)
     .eq('is_active', true)
 
@@ -52,10 +52,10 @@ export async function getProductById(id: string): Promise<UltraProduct | null> {
   const { data, error } = await supabaseAdmin
     .from('products')
     .select(`
-      id, reference, name, slug, description, base_price, gender, images, is_active,
-      brand:brands(id, name, logo_url),
-      category:categories(id, name, slug),
-      variants:product_variants(id, product_id, size, color, color_hex, stock, price_override, sku)
+      id, name, description, base_price, gender, images,
+      brand:brands(name),
+      category:categories(name, slug),
+      variants:product_variants(id, size, color, stock)
     `)
     .eq('id', id)
     .single()

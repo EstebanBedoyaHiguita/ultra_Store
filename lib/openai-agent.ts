@@ -65,11 +65,11 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_product_variants',
-      description: 'Obtiene las tallas y colores disponibles con stock de un producto específico. Llama esta función cuando el cliente quiera saber qué tallas hay o antes de confirmar un pedido.',
+      description: 'Obtiene las tallas y colores disponibles con stock de un producto específico. Llama esta función cuando el cliente quiera saber qué tallas hay o antes de confirmar un pedido. IMPORTANTE: product_id debe ser el campo "id" (UUID) del producto, NO el campo "reference" ni el nombre.',
       parameters: {
         type: 'object',
         properties: {
-          product_id: { type: 'string', description: 'ID del producto obtenido de get_products' },
+          product_id: { type: 'string', description: 'El campo "id" UUID del producto tal como viene en get_products. Ejemplo: "550e8400-e29b-41d4-a716-446655440000"' },
         },
         required: ['product_id'],
       },
