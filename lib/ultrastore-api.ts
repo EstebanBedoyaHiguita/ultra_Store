@@ -69,7 +69,6 @@ export async function getProductVariants(productId: string) {
     .from('product_variants')
     .select('*')
     .eq('product_id', productId)
-    .gt('stock', 0)
     .order('size')
 
   if (error) { console.error('[ultrastore] getProductVariants:', error.message); return [] }

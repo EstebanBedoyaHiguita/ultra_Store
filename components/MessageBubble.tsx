@@ -22,7 +22,7 @@ export default function MessageBubble({ message }: { message: IMessage }) {
           ? 'bg-gray-800 text-white rounded-tl-sm'
           : isHuman
             ? 'bg-green-700 text-white rounded-tr-sm'
-            : 'bg-blue-800 text-white rounded-tr-sm'
+            : 'bg-white/8 text-gray-100 rounded-tr-sm border border-white/10'
       }`}>
         {!isInbound && (
           <p className="text-[10px] font-semibold mb-0.5 opacity-70">
