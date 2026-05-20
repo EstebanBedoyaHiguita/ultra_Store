@@ -175,6 +175,9 @@ async function executeTool(
         const variants = await getProductVariants(pid)
         console.log('[get_product_variants] product_id:', pid, '| count:', variants.length)
         const product = await getProductById(pid)
+        if (!product && variants.length === 0) {
+          return JSON.stringify({ error: `No se encontró ningún producto con id "${pid}". Debes usar EXACTAMENTE el campo "id" que retornó get_products en esta misma conversación, sin modificarlo.` })
+        }
         if (product && Array.isArray(product.images) && product.images.length > 0) {
           onVariantImages(product.images as string[])
         }
@@ -364,10 +367,11 @@ PASO 3 — PRODUCTOS CON TALLAS Y COLORES:
 - Muestra máximo 5 productos. NUNCA inventes productos ni variantes.
 
 PASO 4 — SELECCIÓN DE TALLA/COLOR:
-- Cuando el cliente indique una talla o color específico, PRIMERO llama get_product_variants(product_id) para verificar stock actualizado. Esto también envía las fotos automáticamente.
+- Cuando el cliente indique una talla, color o combinación color+talla, PRIMERO llama get_product_variants(product_id) para verificar stock actualizado. Esto también envía las fotos automáticamente.
 - CRÍTICO: llama get_product_variants SIEMPRE, aunque ya tengas las variantes en el contexto. Es lo que activa el envío de imágenes y garantiza stock fresco.
-- Si la talla/color está disponible: confirma ("Perfecto, tenemos [producto] color [color] talla [talla] 😊") y pregunta la cantidad.
-- Si está agotada según get_product_variants: ofrece alternativas de color o talla disponibles con empatía. NUNCA des por agotado basándote en el contexto anterior — siempre verifica con get_product_variants.
+- REGLA ABSOLUTA: NUNCA digas que una talla o color está "agotado" o "no disponible" sin haber llamado get_product_variants primero en este mismo turno. Los datos de get_products pueden estar desactualizados. Solo get_product_variants tiene el stock real.
+- Si la talla/color está disponible según get_product_variants: confirma ("Perfecto, tenemos [producto] color [color] talla [talla] 😊") y pregunta la cantidad.
+- Si está agotada según get_product_variants: ofrece alternativas de color o talla disponibles con empatía.
 - Después de confirmar: pregunta "¿Te gustaría agregar algo más o pasamos al pedido? 😊"
 
 PASO 5 — DATOS DE ENVÍO Y PEDIDO:
@@ -480,17 +484,20 @@ export async function runAgent(
         try {
           const raw = JSON.parse(result)
           const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
-          console.log('[get_products] total:', list.length, '| first images:', list[0]?.images)
+          console.log('[get_products] total:', list.length, '| first id:', list[0]?.id, '| first images:', list[0]?.images)
           for (const p of list) {
             const imgs: string[] = Array.isArray(p.images) ? (p.images as string[]).filter(Boolean) : []
             const price = typeof p.base_price === 'number' ? p.base_price : 0
             // Format variants grouped by color
             const variants: { size: string; color: string; stock: number }[] = Array.isArray(p.variants) ? p.variants : []
+            // Normalize color names to avoid duplicates (ej: "Negro" y "Negra" → "Negro")
+            const normalizeColor = (c: string) => c.trim().toLowerCase().replace(/a$/, 'o').replace(/\b\w/g, (l) => l.toUpperCase())
             const byColor: Record<string, string[]> = {}
             for (const v of variants) {
               if ((v.stock ?? 0) > 0) {
-                if (!byColor[v.color]) byColor[v.color] = []
-                byColor[v.color].push(v.size)
+                const color = normalizeColor(v.color)
+                if (!byColor[color]) byColor[color] = []
+                if (!byColor[color].includes(v.size)) byColor[color].push(v.size)
               }
             }
             const variantsText = Object.keys(byColor).length > 0

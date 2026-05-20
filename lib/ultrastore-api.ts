@@ -54,7 +54,7 @@ export async function getProducts(filters?: {
     .from('products')
     .select(`
       id, name, description, base_price, gender, images,
-      brand:brands(id, name),
+      brand:brands(name),
       category:categories(name, slug),
       variants:product_variants(id, size, color, stock)
     `)
@@ -196,7 +196,14 @@ export async function createOrder(params: {
   }))
 
   const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(orderItems)
-  if (itemsErr) console.error('[ultrastore] createOrder items:', itemsErr.message)
+  if (itemsErr) {
+    console.error('[ultrastore] createOrder items:', itemsErr.message, itemsErr.code)
+    // Fallback: reintentar sin product_name por si la columna no existe aún
+    const itemsWithoutName = orderItems.map(({ product_name: _pn, ...rest }) => rest)
+    const { error: itemsErr2 } = await supabaseAdmin.from('order_items').insert(itemsWithoutName)
+    if (itemsErr2) console.error('[ultrastore] createOrder items fallback:', itemsErr2.message, itemsErr2.code)
+    else console.log('[ultrastore] createOrder items fallback OK (product_name column missing?)')
+  }
 
   // Descontar stock de cada variante
   for (const item of params.items) {
