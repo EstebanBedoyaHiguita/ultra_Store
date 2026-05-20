@@ -214,6 +214,15 @@ async function processMessage(parsed: {
     })
   }
 
+  // Send product images when client selects a talla (get_product_variants was called)
+  for (const imgUrl of (agentResponse.variantImages ?? []).slice(0, 3)) {
+    const imgWaId = await sendChannelImage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, imgUrl, '')
+    await supabaseAdmin.from('chat_messages').insert({
+      room_id: room.id, direction: 'outbound', sender_type: 'bot', content: imgUrl,
+      wa_message_id: imgWaId ?? undefined,
+    })
+  }
+
   // Summarize if >6 messages (fire-and-forget, errors logged)
   void (async () => {
     try {

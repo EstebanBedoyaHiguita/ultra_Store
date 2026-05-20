@@ -6,41 +6,64 @@ export async function GET(req: NextRequest) {
   const source = searchParams.get('source') // 'ecommerce' | 'chatbot' | null = all
   const status = searchParams.get('status')
 
-  let query = supabaseAdmin
+  let baseQuery = supabaseAdmin
     .from('orders')
-    .select(`
-      id, guest_phone, guest_email, status, total, shipping_address,
-      payment_method, created_at,
-      order_items(id, quantity, unit_price, product_id,
-        products(name, images)
-      )
-    `)
+    .select('id, guest_phone, guest_email, status, total, shipping_address, payment_method, created_at, source, chat_room_id')
     .order('created_at', { ascending: false })
     .limit(200)
 
-  if (status) query = query.eq('status', status)
+  if (status) baseQuery = baseQuery.eq('status', status)
 
-  const { data, error } = await query
+  const { data, error } = await baseQuery
   if (error) {
     console.error('[orders GET]', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Enrich with source/chat_room_id if columns exist (added by schema-chat.sql)
-  let enriched: Record<string, unknown>[] = (data ?? []) as Record<string, unknown>[]
-  try {
-    const { data: withSource } = await supabaseAdmin
-      .from('orders')
-      .select('id, source, chat_room_id')
-      .in('id', enriched.map((o) => o.id as string))
-    if (withSource) {
-      const map = Object.fromEntries(withSource.map((r) => [r.id, r]))
-      enriched = enriched.map((o) => ({ ...o, source: map[o.id as string]?.source ?? 'ecommerce', chat_room_id: map[o.id as string]?.chat_room_id ?? null }))
-    }
-  } catch { /* columns not yet added — default source to ecommerce */ }
+  let enriched: Record<string, unknown>[] = (data ?? []).map((o) => ({
+    ...o,
+    source: o.source ?? 'ecommerce',
+  }))
 
   if (source && source !== 'all') {
-    enriched = enriched.filter((o) => (o.source ?? 'ecommerce') === source)
+    enriched = enriched.filter((o) => o.source === source)
+  }
+
+  // Fetch order_items + product names separately to avoid nested join permission issues
+  const orderIds = enriched.map((o) => o.id as string)
+  if (orderIds.length > 0) {
+    try {
+      const { data: items } = await supabaseAdmin
+        .from('order_items')
+        .select('id, order_id, quantity, unit_price, product_id')
+        .in('order_id', orderIds)
+
+      const productIds = [...new Set((items ?? []).map((i) => i.product_id).filter(Boolean))]
+      let productMap: Record<string, { name: string; images: string[] }> = {}
+      if (productIds.length > 0) {
+        const { data: products } = await supabaseAdmin
+          .from('products')
+          .select('id, name, images')
+          .in('id', productIds)
+        productMap = Object.fromEntries((products ?? []).map((p) => [p.id, { name: p.name, images: p.images ?? [] }]))
+      }
+
+      const itemsByOrder: Record<string, unknown[]> = {}
+      for (const item of (items ?? [])) {
+        if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = []
+        itemsByOrder[item.order_id].push({
+          id: item.id,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          product_id: item.product_id,
+          products: productMap[item.product_id] ?? null,
+        })
+      }
+
+      enriched = enriched.map((o) => ({ ...o, order_items: itemsByOrder[o.id as string] ?? [] }))
+    } catch (err) {
+      console.error('[orders GET] items fetch error:', err)
+    }
   }
 
   return NextResponse.json(enriched)

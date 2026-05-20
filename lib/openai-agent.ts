@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { getProducts, getCategories, getBrands, getProductVariants, createOrder } from './ultrastore-api'
+import { getProducts, getCategories, getBrands, getProductVariants, getProductById, createOrder } from './ultrastore-api'
 import { checkIntentRules } from './transfer-rules'
 import type { IMessage, ITransferRule } from '@/types'
 
@@ -26,6 +26,7 @@ export interface AgentResponse {
   transferReason?: string
   imageUrls: string[]
   products: AgentProduct[]
+  variantImages: string[]
   orderCreated: boolean
 }
 
@@ -140,7 +141,8 @@ async function executeTool(
   name: string,
   args: Record<string, unknown>,
   roomData: RoomKnownData,
-  onRoomUpdate: (data: Partial<RoomKnownData>) => void
+  onRoomUpdate: (data: Partial<RoomKnownData>) => void,
+  onVariantImages: (images: string[]) => void
 ): Promise<string> {
   console.log('[Tool]', name, JSON.stringify(args))
   try {
@@ -168,7 +170,11 @@ async function executeTool(
       }
       case 'get_product_variants': {
         const variants = await getProductVariants(args.product_id as string)
-        console.log('[get_product_variants] product_id:', args.product_id, '| count:', variants.length, '| data:', JSON.stringify(variants))
+        console.log('[get_product_variants] product_id:', args.product_id, '| count:', variants.length)
+        const product = await getProductById(args.product_id as string)
+        if (product && Array.isArray(product.images) && product.images.length > 0) {
+          onVariantImages(product.images as string[])
+        }
         return JSON.stringify(variants)
       }
       case 'update_customer_info': {
@@ -420,6 +426,7 @@ export async function runAgent(
 
   const collectedProducts: AgentProduct[] = []
   const collectedImageUrls: string[] = []
+  const variantProductImages: string[] = [] // images to send when user selects a talla
   let orderCreated = false
   let variantQueryCalled = false
   let productsQueryCalled = false
@@ -433,7 +440,7 @@ export async function runAgent(
 
     for (const tc of toolCalls) {
       const args = JSON.parse(tc.function.arguments || '{}')
-      const result = await executeTool(tc.function.name, args, currentRoomData, onRoomUpdate)
+      const result = await executeTool(tc.function.name, args, currentRoomData, onRoomUpdate, (imgs) => { imgs.forEach((i) => variantProductImages.push(i)) })
 
       if (tc.function.name === 'create_order') {
         try { if (JSON.parse(result).success === true) orderCreated = true } catch { /* */ }
@@ -520,5 +527,5 @@ export async function runAgent(
     }
   } catch { /* no transfer JSON */ }
 
-  return { text: cleanText, transfer, transferReason, imageUrls: collectedImageUrls, products: mentionedProducts, orderCreated }
+  return { text: cleanText, transfer, transferReason, imageUrls: collectedImageUrls, products: mentionedProducts, variantImages: variantProductImages, orderCreated }
 }
