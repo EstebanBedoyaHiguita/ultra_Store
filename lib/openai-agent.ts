@@ -14,7 +14,8 @@ export interface AgentProduct {
   name: string
   price: number
   description: string
-  imageUrl: string
+  images: string[]
+  variantsText: string
   gender: string
   category: string
 }
@@ -447,18 +448,31 @@ export async function runAgent(
           const raw = JSON.parse(result)
           const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
           for (const p of list) {
-            const img = Array.isArray(p.images) ? (p.images as string[])[0] : ''
+            const imgs: string[] = Array.isArray(p.images) ? (p.images as string[]).filter(Boolean) : []
             const price = typeof p.base_price === 'number' ? p.base_price : 0
+            // Format variants grouped by color
+            const variants: { size: string; color: string; stock: number }[] = Array.isArray(p.variants) ? p.variants : []
+            const byColor: Record<string, string[]> = {}
+            for (const v of variants) {
+              if ((v.stock ?? 0) > 0) {
+                if (!byColor[v.color]) byColor[v.color] = []
+                byColor[v.color].push(v.size)
+              }
+            }
+            const variantsText = Object.keys(byColor).length > 0
+              ? Object.entries(byColor).map(([color, sizes]) => `${color}: tallas ${sizes.join(', ')}`).join('\n')
+              : 'Agotado'
             collectedProducts.push({
               id: p.id ?? '',
               name: p.name ?? '',
               price,
               description: p.description ?? '',
-              imageUrl: img ?? '',
+              images: imgs,
+              variantsText,
               gender: p.gender ?? '',
               category: p.category?.name ?? '',
             })
-            if (img) collectedImageUrls.push(img)
+            imgs.forEach((img) => collectedImageUrls.push(img))
           }
         } catch { /* */ }
       }

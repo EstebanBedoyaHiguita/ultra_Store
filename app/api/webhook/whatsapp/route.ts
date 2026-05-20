@@ -189,19 +189,22 @@ async function processMessage(parsed: {
   const { cleanText } = extractImageUrls(agentResponse.text)
 
   if (agentResponse.products.length > 0) {
-    for (const product of (agentResponse.products as AgentProduct[]).slice(0, 2)) {
-      const caption = `${product.name}\n$${product.price.toLocaleString('es-CO')} COP\n${product.description}`
-      const content = product.imageUrl ? `${product.imageUrl}\n${caption}` : caption
-      let waId: string | null = null
-      if (product.imageUrl) {
-        waId = await sendChannelImage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, product.imageUrl, caption)
-      } else {
-        waId = await sendChannelMessage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, caption)
-      }
+    for (const product of (agentResponse.products as AgentProduct[]).slice(0, 5)) {
+      // 1. Text: name + price + description + variants
+      const infoText = `${product.name}\n$${product.price.toLocaleString('es-CO')} COP\n${product.description}\n\nColores y tallas disponibles:\n${product.variantsText}`
+      const textWaId = await sendChannelMessage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, infoText)
       await supabaseAdmin.from('chat_messages').insert({
-        room_id: room.id, direction: 'outbound', sender_type: 'bot', content,
-        wa_message_id: waId ?? undefined,
+        room_id: room.id, direction: 'outbound', sender_type: 'bot', content: infoText,
+        wa_message_id: textWaId ?? undefined,
       })
+      // 2. Images: send each product image separately
+      for (const imgUrl of product.images.slice(0, 3)) {
+        const imgWaId = await sendChannelImage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, imgUrl, '')
+        await supabaseAdmin.from('chat_messages').insert({
+          room_id: room.id, direction: 'outbound', sender_type: 'bot', content: imgUrl,
+          wa_message_id: imgWaId ?? undefined,
+        })
+      }
     }
   } else {
     const waId = await sendChannelMessage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, cleanText)
