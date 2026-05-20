@@ -111,9 +111,10 @@ async function processMessage(parsed: {
       status: 'bot',
       close_reason: null,
       closed_by: null,
+      context_summary: null,
       window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     }).eq('id', room.id)
-    room = { ...room, status: 'bot' }
+    room = { ...room, status: 'bot', context_summary: null }
   }
 
   if (room.status !== 'bot') return

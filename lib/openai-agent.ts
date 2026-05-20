@@ -73,11 +73,11 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_product_variants',
-      description: 'Obtiene tallas y colores con stock de un producto específico. Úsala SOLO si el cliente pregunta por variantes de un producto ya mostrado y necesitas info actualizada. IMPORTANTE: usa el campo "id" UUID del producto, nunca el nombre.',
+      description: 'Obtiene tallas y colores con stock de un producto específico. IMPORTANTE: product_id debe ser el campo "id" UUID (formato xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) que retornó get_products. NUNCA uses el nombre del producto, un número, ni ningún otro valor.',
       parameters: {
         type: 'object',
         properties: {
-          product_id: { type: 'string', description: 'UUID del producto obtenido del campo "id" en get_products.' },
+          product_id: { type: 'string', description: 'UUID del producto, campo "id" de get_products. Formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
         },
         required: ['product_id'],
       },
@@ -167,9 +167,14 @@ async function executeTool(
         return JSON.stringify(products)
       }
       case 'get_product_variants': {
-        const variants = await getProductVariants(args.product_id as string)
-        console.log('[get_product_variants] product_id:', args.product_id, '| count:', variants.length)
-        const product = await getProductById(args.product_id as string)
+        const pid = args.product_id as string
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pid ?? '')
+        if (!isUUID) {
+          return JSON.stringify({ error: 'product_id inválido. Debes usar el campo "id" (UUID) que retornó get_products, no el nombre ni ningún otro valor.' })
+        }
+        const variants = await getProductVariants(pid)
+        console.log('[get_product_variants] product_id:', pid, '| count:', variants.length)
+        const product = await getProductById(pid)
         if (product && Array.isArray(product.images) && product.images.length > 0) {
           onVariantImages(product.images as string[])
         }
@@ -309,6 +314,13 @@ SALUDO INICIAL:
 - Primera vez: "¡Hola! 👋 Soy Isabela, tu asesora virtual de UltraStore 🛍️ ¿En qué te puedo ayudar hoy?"
 - Si ya tienes el nombre: "¡Hola [nombre]! 😊 Bienvenido/a de nuevo a UltraStore. ¿En qué te ayudo?"
 - NUNCA uses "Desconocido" como nombre.
+- CRÍTICO — PEDIDOS ANTERIORES: Si el contexto previo menciona un pedido ya registrado (con número #US-...), ese pedido ya fue completado. NO lo repitas, NO crees un nuevo pedido basado en ese contexto. Trata este mensaje como una conversación nueva y pregunta en qué puedes ayudar.
+
+TONO Y ESTILO:
+- Sé cálida, cercana y genuinamente interesada en ayudar. No seas solo transaccional.
+- Después de mostrar productos pregunta: "¿Alguno te llama la atención? 😊" o "¿Quieres ver más opciones?"
+- Si algo está agotado, muestra empatía y ofrece alternativas: "Qué pena, esa talla está agotada 😕 Pero tenemos disponible en [opciones]. ¿Te sirve alguna?"
+- No te apresures al pedido. Deja que el cliente explore y se sienta acompañado.
 
 IDENTIFICACIÓN DE GÉNERO:
 - Infiere género por nombre si es obvio. Si no, pregunta: "¿Buscas ropa de hombre o mujer? 😊"
@@ -351,10 +363,12 @@ PASO 3 — PRODUCTOS CON TALLAS Y COLORES:
 - Si un producto no tiene variantes con stock, indícalo como "Agotado" y no lo ofrezcas.
 - Muestra máximo 5 productos. NUNCA inventes productos ni variantes.
 
-PASO 4 — SELECCIÓN:
-- Cuando el cliente indique una talla o confirme un producto, OBLIGATORIAMENTE llama get_product_variants(product_id) ANTES de responder. Esto envía las fotos automáticamente.
-- CRÍTICO: debes llamar get_product_variants AUNQUE ya tengas las variantes del producto en el contexto. No importa si ya mostraste tallas antes — llamar esta función es lo que activa el envío automático de imágenes. Si no la llamas, el cliente no recibe las fotos.
-- Luego confirma la selección y pregunta la cantidad.
+PASO 4 — SELECCIÓN DE TALLA/COLOR:
+- Cuando el cliente indique una talla o color específico, PRIMERO llama get_product_variants(product_id) para verificar stock actualizado. Esto también envía las fotos automáticamente.
+- CRÍTICO: llama get_product_variants SIEMPRE, aunque ya tengas las variantes en el contexto. Es lo que activa el envío de imágenes y garantiza stock fresco.
+- Si la talla/color está disponible: confirma ("Perfecto, tenemos [producto] color [color] talla [talla] 😊") y pregunta la cantidad.
+- Si está agotada según get_product_variants: ofrece alternativas de color o talla disponibles con empatía. NUNCA des por agotado basándote en el contexto anterior — siempre verifica con get_product_variants.
+- Después de confirmar: pregunta "¿Te gustaría agregar algo más o pasamos al pedido? 😊"
 
 PASO 5 — DATOS DE ENVÍO Y PEDIDO:
 DATOS OBLIGATORIOS (recógelos en este orden):
@@ -363,7 +377,10 @@ b) Dirección de entrega → llama update_customer_info.
 c) Ciudad y departamento.
 d) Método de pago: "¿Pagas con Bold (tarjeta/PSE) o contraentrega? 💳"
 
-ANTES de llamar create_order verifica que tienes: nombre, dirección, ciudad y método de pago.
+ANTES de llamar create_order:
+- Verifica que tienes: nombre, dirección, ciudad y método de pago.
+- SIEMPRE muestra el resumen al cliente y espera su confirmación explícita ("sí", "confirmo", "listo", etc.) antes de llamar create_order. Incluso si ya tienes todos los datos guardados, escribe el resumen y pregunta: "¿Confirmamos el pedido? ✅"
+- NUNCA crees el pedido automáticamente al recibir la cantidad.
 Llama create_order SIN escribir nada antes. NO inventes totales.
 SOLO después del éxito de create_order escribe:
 

@@ -198,6 +198,23 @@ export async function createOrder(params: {
   const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(orderItems)
   if (itemsErr) console.error('[ultrastore] createOrder items:', itemsErr.message)
 
+  // Descontar stock de cada variante
+  for (const item of params.items) {
+    const vid = toUUID(item.variantId)
+    if (!vid) continue
+    const { data: variant } = await supabaseAdmin
+      .from('product_variants')
+      .select('stock')
+      .eq('id', vid)
+      .single()
+    if (variant) {
+      await supabaseAdmin
+        .from('product_variants')
+        .update({ stock: Math.max(0, variant.stock - item.quantity) })
+        .eq('id', vid)
+    }
+  }
+
   const orderNumber = `US-${order.id.slice(0, 8).toUpperCase()}`
 
   return { success: true, orderId: order.id, orderNumber, subtotal, total }
