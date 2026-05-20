@@ -44,12 +44,11 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_brands',
-      description: 'Retorna las marcas disponibles para una categoría y género. Llama esta función cuando el cliente exprese interés en una categoría (jeans, camisetas, etc.) para mostrarle las marcas disponibles antes de mostrar productos.',
+      description: 'Retorna las marcas disponibles para una categoría. Llama esta función cuando el cliente exprese interés en una categoría (jeans, camisetas, etc.) para mostrarle las marcas disponibles antes de mostrar productos.',
       parameters: {
         type: 'object',
         properties: {
           category_slug: { type: 'string', description: 'Slug de la categoría: jeans, camisetas, outerwear, shorts, accesorios' },
-          gender: { type: 'string', description: 'Género: hombre o mujer. Omitir para todos.' },
         },
       },
     },
@@ -154,7 +153,6 @@ async function executeTool(
       case 'get_brands': {
         const brands = await getBrands({
           categorySlug: args.category_slug as string | undefined,
-          gender: args.gender as string | undefined,
         })
         return JSON.stringify(brands)
       }
@@ -318,8 +316,13 @@ IDENTIFICACIÓN DE GÉNERO:
 
 FLUJO DE CATÁLOGO — SIGUE EXACTAMENTE ESTE ORDEN:
 
-PASO 1 — MARCAS:
-- Cuando el cliente indique qué quiere (jeans, camisetas, etc.), llama get_brands con category_slug y gender.
+PASO 1 — GÉNERO ANTES DE MARCAS:
+- Antes de mostrar marcas, SIEMPRE confirma el género si no lo tienes guardado.
+- Pregunta: "¿Es para hombre o mujer? 👖" y espera la respuesta.
+- Cuando el cliente responda, llama update_customer_info con el género y luego llama get_brands.
+
+PASO 2 — MARCAS:
+- Llama get_brands con category_slug solamente (sin gender). El catálogo incluye todos los géneros.
 - Muestra las marcas disponibles y pregunta cuál le interesa. Ejemplo:
   "Tenemos estas marcas en jeans de mujer 👖:
   • Sabka
@@ -327,7 +330,7 @@ PASO 1 — MARCAS:
   • Stüssy
   ¿Cuál te llama la atención?"
 
-PASO 2 — PRODUCTOS CON TALLAS Y COLORES:
+PASO 3 — PRODUCTOS CON TALLAS Y COLORES:
 - Cuando el cliente elija una marca, llama get_products con category_slug + brand_name + gender.
 - get_products ya incluye las variantes (tallas y colores) de cada producto. Lee el campo "variants".
 - Por cada producto muestra SIEMPRE este formato exacto (texto plano, sin asteriscos):
@@ -344,11 +347,11 @@ PASO 2 — PRODUCTOS CON TALLAS Y COLORES:
 - Si un producto no tiene variantes con stock, indícalo como "Agotado" y no lo ofrezcas.
 - Muestra máximo 5 productos. NUNCA inventes productos ni variantes.
 
-PASO 3 — SELECCIÓN:
+PASO 4 — SELECCIÓN:
 - Cliente elige producto + color + talla → confirma la selección y pregunta la cantidad.
 - Muestra resumen del carrito antes de pedir datos de envío.
 
-PASO 4 — DATOS DE ENVÍO Y PEDIDO:
+PASO 5 — DATOS DE ENVÍO Y PEDIDO:
 DATOS OBLIGATORIOS (recógelos en este orden):
 a) Nombre completo → llama update_customer_info inmediatamente.
 b) Dirección de entrega → llama update_customer_info.

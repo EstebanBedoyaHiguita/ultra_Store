@@ -13,7 +13,6 @@ export async function getCategories(): Promise<UltraCategory[]> {
 
 export async function getBrands(filters?: {
   categorySlug?: string
-  gender?: string
 }): Promise<{ id: string; name: string }[]> {
   let query = supabaseAdmin
     .from('products')
@@ -27,10 +26,6 @@ export async function getBrands(filters?: {
       .eq('slug', filters.categorySlug)
       .single()
     if (cat) query = query.eq('category_id', cat.id)
-  }
-
-  if (filters?.gender && filters.gender !== 'unisex') {
-    query = query.in('gender', [filters.gender, 'unisex'])
   }
 
   const { data, error } = await query
@@ -73,14 +68,6 @@ export async function getProducts(filters?: {
     if (cat) query = query.eq('category_id', cat.id)
   }
 
-  if (filters?.gender && filters.gender !== 'unisex') {
-    query = query.in('gender', [filters.gender, 'unisex'])
-  }
-
-  if (filters?.search) {
-    query = query.ilike('name', `%${filters.search}%`)
-  }
-
   if (filters?.brandName) {
     const { data: brand } = await supabaseAdmin
       .from('brands')
@@ -88,6 +75,13 @@ export async function getProducts(filters?: {
       .ilike('name', `%${filters.brandName}%`)
       .single()
     if (brand) query = query.eq('brand_id', brand.id)
+  } else if (filters?.gender && filters.gender !== 'unisex') {
+    // Only filter by gender when no brand is specified
+    query = query.in('gender', [filters.gender, 'unisex'])
+  }
+
+  if (filters?.search) {
+    query = query.ilike('name', `%${filters.search}%`)
   }
 
   const { data, error } = await query.order('created_at', { ascending: false }).limit(5)
