@@ -333,7 +333,8 @@ PASO 2 — PRODUCTOS CON TALLAS Y COLORES:
   [color 1]: tallas [lista de tallas con stock > 0]
   [color 2]: tallas [lista de tallas con stock > 0]
 
-- Las imágenes se envían automáticamente. NUNCA digas que no puedes mostrar imágenes.
+- Las imágenes SE ENVÍAN AUTOMÁTICAMENTE por el sistema después de cada producto. NUNCA escribas "[Imagen]", "[Foto]" ni ningún placeholder. NUNCA digas que no puedes mostrar imágenes.
+- Si el cliente pide ver fotos de un producto ya mencionado, llama get_products de nuevo con la misma marca y categoría — las imágenes se enviarán automáticamente.
 - Si un producto no tiene variantes con stock, indícalo como "Agotado" y no lo ofrezcas.
 - Muestra máximo 5 productos. NUNCA inventes productos ni variantes.
 
@@ -447,6 +448,7 @@ export async function runAgent(
         try {
           const raw = JSON.parse(result)
           const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
+          console.log('[get_products] total:', list.length, '| first images:', list[0]?.images)
           for (const p of list) {
             const imgs: string[] = Array.isArray(p.images) ? (p.images as string[]).filter(Boolean) : []
             const price = typeof p.base_price === 'number' ? p.base_price : 0
