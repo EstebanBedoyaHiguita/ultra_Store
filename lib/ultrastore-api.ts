@@ -16,7 +16,7 @@ export async function getBrands(filters?: {
 }): Promise<{ id: string; name: string }[]> {
   let query = supabaseAdmin
     .from('products')
-    .select('brand_id, brand:brands(id, name)')
+    .select('brand_id, brand:brands(id, name), variants:product_variants(stock)')
     .eq('is_active', true)
 
   if (filters?.categorySlug) {
@@ -34,10 +34,11 @@ export async function getBrands(filters?: {
   const seen = new Set<string>()
   const brands: { id: string; name: string }[] = []
   for (const row of (data ?? [])) {
-    const b = (row as unknown as { brand: { id: string; name: string } }).brand
-    if (b && !seen.has(b.id)) {
-      seen.add(b.id)
-      brands.push({ id: b.id, name: b.name })
+    const r = row as unknown as { brand: { id: string; name: string }; variants: { stock: number }[] }
+    const hasStock = (r.variants ?? []).some((v) => (v.stock ?? 0) > 0)
+    if (r.brand && hasStock && !seen.has(r.brand.id)) {
+      seen.add(r.brand.id)
+      brands.push({ id: r.brand.id, name: r.brand.name })
     }
   }
   return brands
@@ -84,8 +85,25 @@ export async function getProducts(filters?: {
     query = query.ilike('name', `%${filters.search}%`)
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(5)
+  let { data, error } = await query.order('created_at', { ascending: false }).limit(5)
   if (error) { console.error('[ultrastore] getProducts:', error.message); return [] }
+
+  // If no results with gender filter and no brand specified, retry without gender
+  if ((data ?? []).length === 0 && filters?.gender && !filters.brandName) {
+    const { data: fallback } = await supabaseAdmin
+      .from('products')
+      .select(`
+        id, name, description, base_price, gender, images,
+        brand:brands(id, name),
+        category:categories(name, slug),
+        variants:product_variants(id, size, color, stock)
+      `)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(5)
+    data = fallback
+  }
+
   return (data ?? []) as unknown as UltraProduct[]
 }
 
@@ -167,8 +185,8 @@ export async function createOrder(params: {
 
   const orderItems = params.items.map((item) => ({
     order_id: order.id,
-    product_id: item.productId,
-    variant_id: item.variantId ?? null,
+    product_id: item.productId || null,
+    variant_id: item.variantId || null,
     quantity: item.quantity,
     unit_price: item.unitPrice,
   }))

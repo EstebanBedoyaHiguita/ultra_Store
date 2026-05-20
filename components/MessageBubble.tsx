@@ -10,10 +10,10 @@ export default function MessageBubble({ message }: { message: IMessage }) {
   const isInbound = message.direction === 'inbound'
   const isHuman = message.sender_type === 'human'
 
-  // Detect image URL on its own line
-  const imageMatch = message.content.match(/^(https?:\/\/\S+\.(jpg|jpeg|png|webp|gif))(\n|$)/i)
+  // Si el contenido completo es una URL (sin espacios), es una imagen
+  const imageMatch = message.content.match(/^(https?:\/\/\S+)$/i)
   const imageUrl = imageMatch?.[1]
-  const textPart = imageUrl ? message.content.replace(imageUrl, '').trim() : message.content
+  const textPart = imageUrl ? '' : message.content
 
   return (
     <div className={`flex ${isInbound ? 'justify-start' : 'justify-end'} mb-1`}>

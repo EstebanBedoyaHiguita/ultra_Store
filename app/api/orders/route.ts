@@ -33,30 +33,33 @@ export async function GET(req: NextRequest) {
   const orderIds = enriched.map((o) => o.id as string)
   if (orderIds.length > 0) {
     try {
-      const { data: items } = await supabaseAdmin
+      const { data: items, error: itemsError } = await supabaseAdmin
         .from('order_items')
         .select('id, order_id, quantity, unit_price, product_id')
         .in('order_id', orderIds)
+      if (itemsError) console.error('[orders GET] order_items error:', itemsError.message, itemsError.code)
 
       const productIds = [...new Set((items ?? []).map((i) => i.product_id).filter(Boolean))]
       let productMap: Record<string, { name: string; images: string[] }> = {}
       if (productIds.length > 0) {
-        const { data: products } = await supabaseAdmin
+        const { data: products, error: productsError } = await supabaseAdmin
           .from('products')
           .select('id, name, images')
           .in('id', productIds)
+        if (productsError) console.error('[orders GET] products error:', productsError.message, productsError.code)
         productMap = Object.fromEntries((products ?? []).map((p) => [p.id, { name: p.name, images: p.images ?? [] }]))
       }
 
       const itemsByOrder: Record<string, unknown[]> = {}
       for (const item of (items ?? [])) {
         if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = []
+        const productInfo = productMap[item.product_id] ?? null
         itemsByOrder[item.order_id].push({
           id: item.id,
           quantity: item.quantity,
           unit_price: item.unit_price,
           product_id: item.product_id,
-          products: productMap[item.product_id] ?? null,
+          products: productInfo,
         })
       }
 
