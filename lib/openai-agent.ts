@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { getProducts, getCategories, getProductVariants, createOrder } from './ultrastore-api'
+import { getProducts, getCategories, getBrands, getProductVariants, createOrder } from './ultrastore-api'
 import { checkIntentRules } from './transfer-rules'
 import type { IMessage, ITransferRule } from '@/types'
 
@@ -41,22 +41,29 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'get_categories',
-      description: 'Lista todas las categorías de ropa disponibles en UltraStore (Jeans, Camisetas, Outerwear, Shorts, Accesorios).',
-      parameters: { type: 'object', properties: {} },
+      name: 'get_brands',
+      description: 'Retorna las marcas disponibles para una categoría y género. Llama esta función cuando el cliente exprese interés en una categoría (jeans, camisetas, etc.) para mostrarle las marcas disponibles antes de mostrar productos.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category_slug: { type: 'string', description: 'Slug de la categoría: jeans, camisetas, outerwear, shorts, accesorios' },
+          gender: { type: 'string', description: 'Género: hombre o mujer. Omitir para todos.' },
+        },
+      },
     },
   },
   {
     type: 'function',
     function: {
       name: 'get_products',
-      description: 'Obtiene el catálogo de UltraStore con filtros opcionales. Usa category_slug para filtrar por categoría (jeans, camisetas, outerwear, shorts, accesorios). Usa gender para filtrar por género (hombre, mujer). Usa search para buscar por nombre o marca. SIEMPRE llama esta función antes de decir que un producto no existe.',
+      description: 'Obtiene hasta 5 productos con sus variantes (tallas y colores). Llama esta función SOLO después de que el cliente haya elegido una marca. Filtra siempre por brand_name y category_slug.',
       parameters: {
         type: 'object',
         properties: {
           category_slug: { type: 'string', description: 'Slug de la categoría (ej: jeans, camisetas)' },
-          gender: { type: 'string', description: 'Género: hombre o mujer. Omitir para mostrar todos.' },
-          search: { type: 'string', description: 'Texto libre para buscar por nombre o marca' },
+          brand_name: { type: 'string', description: 'Nombre exacto de la marca elegida por el cliente' },
+          gender: { type: 'string', description: 'Género: hombre o mujer.' },
+          search: { type: 'string', description: 'Búsqueda libre por nombre de producto (solo si no hay brand_name)' },
         },
       },
     },
@@ -65,11 +72,11 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_product_variants',
-      description: 'Obtiene las tallas y colores disponibles con stock de un producto específico. Llama esta función cuando el cliente quiera saber qué tallas hay o antes de confirmar un pedido. IMPORTANTE: product_id debe ser el campo "id" (UUID) del producto, NO el campo "reference" ni el nombre.',
+      description: 'Obtiene tallas y colores con stock de un producto específico. Úsala SOLO si el cliente pregunta por variantes de un producto ya mostrado y necesitas info actualizada. IMPORTANTE: usa el campo "id" UUID del producto, nunca el nombre.',
       parameters: {
         type: 'object',
         properties: {
-          product_id: { type: 'string', description: 'El campo "id" UUID del producto tal como viene en get_products. Ejemplo: "550e8400-e29b-41d4-a716-446655440000"' },
+          product_id: { type: 'string', description: 'UUID del producto obtenido del campo "id" en get_products.' },
         },
         required: ['product_id'],
       },
@@ -141,11 +148,19 @@ async function executeTool(
         const cats = await getCategories()
         return JSON.stringify(cats)
       }
+      case 'get_brands': {
+        const brands = await getBrands({
+          categorySlug: args.category_slug as string | undefined,
+          gender: args.gender as string | undefined,
+        })
+        return JSON.stringify(brands)
+      }
       case 'get_products': {
         const products = await getProducts({
           categorySlug: args.category_slug as string | undefined,
           gender: args.gender as string | undefined,
           search: args.search as string | undefined,
+          brandName: args.brand_name as string | undefined,
         })
         console.log('[get_products] count:', products.length, '| first product variants:', (products[0] as unknown as Record<string, unknown>)?.variants)
         return JSON.stringify(products)
@@ -291,65 +306,64 @@ SALUDO INICIAL:
 - NUNCA uses "Desconocido" como nombre.
 
 IDENTIFICACIÓN DE GÉNERO:
-- Si el cliente pregunta por productos, trata de inferir género por el nombre si es obvio.
-- Si no es claro, pregunta amablemente: "¿Buscas ropa de hombre, mujer o manejas ambas opciones? 😊"
-- Llama update_customer_info con el género cuando lo sepas.
-- Al mostrar productos, filtra por el género del cliente + unisex.
+- Infiere género por nombre si es obvio. Si no, pregunta: "¿Buscas ropa de hombre o mujer? 😊"
+- Llama update_customer_info con el género en cuanto lo sepas.
 
-FORMATO DE RESPUESTA — CRÍTICO:
-- PROHIBIDO usar asteriscos, negritas ni markdown. Solo texto plano, emojis y saltos de línea.
-- Ejemplo de producto correcto:
-  👕 Supreme Box Logo Tee
-  $280.000 COP
-  Talla disponibles: S, M, L, XL
-  Camiseta icónica de Supreme en algodón premium
-  https://url-imagen.jpg
-- NUNCA digas que no puedes mostrar imágenes. Las imágenes se envían SIEMPRE automáticamente cuando muestras un producto. Si el cliente pregunta por fotos, llama get_products y muestra el producto.
-- Muestra máximo 3 productos a la vez. Si hay más, menciona que hay más opciones.
-- NUNCA inventes productos. Solo muestra lo que retorne get_products.
+FLUJO DE CATÁLOGO — SIGUE EXACTAMENTE ESTE ORDEN:
 
-TALLAS Y COLORES:
-- Cuando el cliente pregunte por tallas o colores de un producto ya mostrado, llama get_product_variants con el UUID del producto.
-- Responde SOLO con texto listando las opciones. Ejemplo:
-  "La Camiseta Clemont - 001 tiene disponibles 🎨:
-  Negro: tallas M, L
-  Blanca: tallas M, L, XL"
-- NO vuelvas a mostrar el producto como card. Solo texto plano.
-- Si get_product_variants retorna vacío, significa que está agotado. Dilo claramente.
+PASO 1 — MARCAS:
+- Cuando el cliente indique qué quiere (jeans, camisetas, etc.), llama get_brands con category_slug y gender.
+- Muestra las marcas disponibles y pregunta cuál le interesa. Ejemplo:
+  "Tenemos estas marcas en jeans de mujer 👖:
+  • Sabka
+  • Carhartt
+  • Stüssy
+  ¿Cuál te llama la atención?"
 
-FLUJO DE PEDIDO — SIGUE ESTE ORDEN:
-1. Cliente expresa interés en comprar → llama get_products con filtros apropiados.
-2. Muestra productos → cliente elige uno → llama get_product_variants para mostrar tallas y colores disponibles.
-3. Cliente elige talla y color → pregunta cantidad si no lo indicó.
-4. Muestra resumen del carrito y pregunta si quiere agregar algo más o confirmar.
-5. DATOS OBLIGATORIOS antes de crear el pedido:
-   a) Nombre: si no lo tienes, pídelo. Cuando lo dé, llama update_customer_info.
-   b) Dirección: pídela. Cuando la dé, confirma y llama update_customer_info.
-   c) Ciudad y departamento.
-   d) Método de pago: "¿Prefieres pagar por Bold (tarjeta/PSE) o contraentrega? 💳"
-6. ANTES de llamar create_order verifica que tienes: nombre, dirección, ciudad y método de pago.
-7. Llama create_order INMEDIATAMENTE. NO escribas nada antes. NO inventes precios ni totales.
-8. SOLO después de que create_order retorne éxito, escribe el resumen con los valores EXACTOS:
+PASO 2 — PRODUCTOS CON TALLAS Y COLORES:
+- Cuando el cliente elija una marca, llama get_products con category_slug + brand_name + gender.
+- get_products ya incluye las variantes (tallas y colores) de cada producto. Lee el campo "variants".
+- Por cada producto muestra SIEMPRE este formato exacto (texto plano, sin asteriscos):
+
+  👕 [nombre del producto]
+  Precio: $[base_price] COP
+  [descripción breve]
+  Colores y tallas disponibles:
+  [color 1]: tallas [lista de tallas con stock > 0]
+  [color 2]: tallas [lista de tallas con stock > 0]
+
+- Las imágenes se envían automáticamente. NUNCA digas que no puedes mostrar imágenes.
+- Si un producto no tiene variantes con stock, indícalo como "Agotado" y no lo ofrezcas.
+- Muestra máximo 5 productos. NUNCA inventes productos ni variantes.
+
+PASO 3 — SELECCIÓN:
+- Cliente elige producto + color + talla → confirma la selección y pregunta la cantidad.
+- Muestra resumen del carrito antes de pedir datos de envío.
+
+PASO 4 — DATOS DE ENVÍO Y PEDIDO:
+DATOS OBLIGATORIOS (recógelos en este orden):
+a) Nombre completo → llama update_customer_info inmediatamente.
+b) Dirección de entrega → llama update_customer_info.
+c) Ciudad y departamento.
+d) Método de pago: "¿Pagas con Bold (tarjeta/PSE) o contraentrega? 💳"
+
+ANTES de llamar create_order verifica que tienes: nombre, dirección, ciudad y método de pago.
+Llama create_order SIN escribir nada antes. NO inventes totales.
+SOLO después del éxito de create_order escribe:
 
 ✅ Pedido registrado #(orderNumber real)
-- (quantity)x (product_name) talla (size): $(lineTotal) COP
+- (qty)x (nombre) color (color) talla (talla): $(precio) COP
 Subtotal: $(subtotal real) COP
 Envío: $15.000 COP
 Total: $(total real) COP
 
-Luego envía SIEMPRE este mensaje:
-"📦 Tu pedido llegará el ${getDeliveryDate()}. Recuerda que no realizamos entregas los domingos ni días festivos."
+"📦 Tu pedido llegará el ${getDeliveryDate()}. No hacemos entregas domingos ni festivos."
+"¡Gracias por comprar en UltraStore [nombre]! 🛍️✨ ¡Hasta pronto!"
 
-Luego despídete con:
-"¡Gracias por comprar en UltraStore [nombre]! 🛍️✨ Si tienes alguna duda sobre tu pedido, aquí estamos. ¡Hasta pronto!"
-
-IMPORTANTE: Al final de cada respuesta, si detectas alguna de estas situaciones, incluye en la ÚLTIMA línea:
+TRANSFERENCIA — incluye en la ÚLTIMA línea si aplica:
 {"transfer":true,"reason":"motivo"}
-Situaciones que requieren transferencia:
-- Queja, reclamo o insatisfacción
-- El cliente pide hablar con una persona
-- Problema con un pedido que no puedes resolver
-Si NO hay que transferir, no incluyas ese JSON.`
+Situaciones: queja/reclamo, el cliente pide hablar con una persona, problema con pedido.
+Si NO aplica, no incluyas el JSON.`
 
 export async function runAgent(
   userMessage: string,

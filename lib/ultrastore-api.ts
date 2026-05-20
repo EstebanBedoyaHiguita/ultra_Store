@@ -11,16 +11,54 @@ export async function getCategories(): Promise<UltraCategory[]> {
   return data ?? []
 }
 
+export async function getBrands(filters?: {
+  categorySlug?: string
+  gender?: string
+}): Promise<{ id: string; name: string }[]> {
+  let query = supabaseAdmin
+    .from('products')
+    .select('brand_id, brand:brands(id, name)')
+    .eq('is_active', true)
+
+  if (filters?.categorySlug) {
+    const { data: cat } = await supabaseAdmin
+      .from('categories')
+      .select('id')
+      .eq('slug', filters.categorySlug)
+      .single()
+    if (cat) query = query.eq('category_id', cat.id)
+  }
+
+  if (filters?.gender && filters.gender !== 'unisex') {
+    query = query.in('gender', [filters.gender, 'unisex'])
+  }
+
+  const { data, error } = await query
+  if (error) { console.error('[ultrastore] getBrands:', error.message); return [] }
+
+  const seen = new Set<string>()
+  const brands: { id: string; name: string }[] = []
+  for (const row of (data ?? [])) {
+    const b = (row as unknown as { brand: { id: string; name: string } }).brand
+    if (b && !seen.has(b.id)) {
+      seen.add(b.id)
+      brands.push({ id: b.id, name: b.name })
+    }
+  }
+  return brands
+}
+
 export async function getProducts(filters?: {
   categorySlug?: string
   gender?: string
   search?: string
+  brandName?: string
 }): Promise<UltraProduct[]> {
   let query = supabaseAdmin
     .from('products')
     .select(`
       id, name, description, base_price, gender, images,
-      brand:brands(name),
+      brand:brands(id, name),
       category:categories(name, slug),
       variants:product_variants(id, size, color, stock)
     `)
@@ -43,7 +81,16 @@ export async function getProducts(filters?: {
     query = query.ilike('name', `%${filters.search}%`)
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(50)
+  if (filters?.brandName) {
+    const { data: brand } = await supabaseAdmin
+      .from('brands')
+      .select('id')
+      .ilike('name', `%${filters.brandName}%`)
+      .single()
+    if (brand) query = query.eq('brand_id', brand.id)
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(5)
   if (error) { console.error('[ultrastore] getProducts:', error.message); return [] }
   return (data ?? []) as unknown as UltraProduct[]
 }
