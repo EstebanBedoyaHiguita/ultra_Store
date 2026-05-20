@@ -145,9 +145,9 @@ export async function createOrder(params: {
   notes?: string
   paymentMethod: 'bold' | 'contraentrega'
   items: Array<{
-    productId: string
+    productId?: string
     variantId?: string
-    productName: string
+    productName?: string
     size?: string
     quantity: number
     unitPrice: number
@@ -183,10 +183,14 @@ export async function createOrder(params: {
     return { success: false, error: orderErr?.message ?? 'Error al crear el pedido' }
   }
 
+  const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+  const toUUID = (s: string | undefined) => (s && isUUID(s) ? s : null)
+
   const orderItems = params.items.map((item) => ({
     order_id: order.id,
-    product_id: item.productId || null,
-    variant_id: item.variantId || null,
+    product_id: toUUID(item.productId),
+    variant_id: toUUID(item.variantId),
+    product_name: item.productName ?? null,
     quantity: item.quantity,
     unit_price: item.unitPrice,
   }))

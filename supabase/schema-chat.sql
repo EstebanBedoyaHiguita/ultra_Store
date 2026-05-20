@@ -7,6 +7,9 @@
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'ecommerce';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS chat_room_id UUID;
 
+-- 1b. Agregar product_name a order_items para mostrar nombres aunque product_id sea null
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_name TEXT;
+
 -- 2. Salas de conversación (una por cliente/canal)
 CREATE TABLE IF NOT EXISTS chat_rooms (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

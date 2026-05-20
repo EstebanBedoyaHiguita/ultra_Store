@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     try {
       const { data: items, error: itemsError } = await supabaseAdmin
         .from('order_items')
-        .select('id, order_id, quantity, unit_price, product_id')
+        .select('id, order_id, quantity, unit_price, product_id, product_name')
         .in('order_id', orderIds)
       if (itemsError) console.error('[orders GET] order_items error:', itemsError.message, itemsError.code)
 
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
           quantity: item.quantity,
           unit_price: item.unit_price,
           product_id: item.product_id,
-          products: productInfo,
+          products: productInfo ?? (item.product_name ? { name: item.product_name, images: [] } : null),
         })
       }
 
