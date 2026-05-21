@@ -13,6 +13,7 @@ export async function getCategories(): Promise<UltraCategory[]> {
 
 export async function getBrands(filters?: {
   categorySlug?: string
+  gender?: string
 }): Promise<{ id: string; name: string }[]> {
   let query = supabaseAdmin
     .from('products')
@@ -26,6 +27,10 @@ export async function getBrands(filters?: {
       .eq('slug', filters.categorySlug)
       .single()
     if (cat) query = query.eq('category_id', cat.id)
+  }
+
+  if (filters?.gender && filters.gender !== 'unisex') {
+    query = query.in('gender', [filters.gender, 'unisex'])
   }
 
   const { data, error } = await query
@@ -207,8 +212,26 @@ export async function createOrder(params: {
 
   // Descontar stock de cada variante
   for (const item of params.items) {
-    const vid = toUUID(item.variantId)
-    if (!vid) continue
+    let vid = toUUID(item.variantId)
+
+    // Si no hay variant_id válido pero sí hay product_id + size, buscar el variant
+    if (!vid && toUUID(item.productId) && item.size) {
+      const { data: found } = await supabaseAdmin
+        .from('product_variants')
+        .select('id, stock')
+        .eq('product_id', toUUID(item.productId) as string)
+        .ilike('size', item.size.trim())
+        .gt('stock', 0)
+        .limit(1)
+        .single()
+      if (found) vid = found.id
+    }
+
+    if (!vid) {
+      console.log('[ultrastore] createOrder: no variant_id para item', item.productName, item.size)
+      continue
+    }
+
     const { data: variant } = await supabaseAdmin
       .from('product_variants')
       .select('stock')
@@ -219,6 +242,7 @@ export async function createOrder(params: {
         .from('product_variants')
         .update({ stock: Math.max(0, variant.stock - item.quantity) })
         .eq('id', vid)
+      console.log('[ultrastore] stock descontado: variant', vid, '→', Math.max(0, variant.stock - item.quantity))
     }
   }
 

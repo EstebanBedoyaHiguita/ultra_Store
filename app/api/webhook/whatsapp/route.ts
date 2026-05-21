@@ -215,8 +215,10 @@ async function processMessage(parsed: {
     })
   }
 
-  // Send product images when client selects a talla (get_product_variants was called)
-  for (const imgUrl of (agentResponse.variantImages ?? []).slice(0, 3)) {
+  // Send product images when client selects a talla — skip URLs already sent in this conversation
+  const alreadySentUrls = new Set(history.filter((m) => m.direction === 'outbound').map((m) => m.content))
+  const newVariantImages = (agentResponse.variantImages ?? []).filter((url) => !alreadySentUrls.has(url))
+  for (const imgUrl of newVariantImages.slice(0, 3)) {
     const imgWaId = await sendChannelImage(parsed.channel as 'whatsapp' | 'instagram', parsed.from, imgUrl, '')
     await supabaseAdmin.from('chat_messages').insert({
       room_id: room.id, direction: 'outbound', sender_type: 'bot', content: imgUrl,

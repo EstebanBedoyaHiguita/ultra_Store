@@ -44,11 +44,12 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_brands',
-      description: 'Retorna las marcas disponibles para una categoría. Llama esta función cuando el cliente exprese interés en una categoría (jeans, camisetas, etc.) para mostrarle las marcas disponibles antes de mostrar productos.',
+      description: 'Retorna las marcas disponibles para una categoría y género. Llama esta función cuando el cliente exprese interés en una categoría (jeans, camisetas, etc.) para mostrarle las marcas disponibles antes de mostrar productos.',
       parameters: {
         type: 'object',
         properties: {
           category_slug: { type: 'string', description: 'Slug de la categoría: jeans, camisetas, outerwear, shorts, accesorios' },
+          gender: { type: 'string', description: 'Género del cliente: hombre, mujer, unisex' },
         },
       },
     },
@@ -153,6 +154,7 @@ async function executeTool(
       case 'get_brands': {
         const brands = await getBrands({
           categorySlug: args.category_slug as string | undefined,
+          gender: args.gender as string | undefined,
         })
         return JSON.stringify(brands)
       }
@@ -209,6 +211,7 @@ async function executeTool(
         return JSON.stringify({ success: true })
       }
       case 'create_order': {
+        console.log('[create_order] items recibidos:', JSON.stringify(args.items))
         const customerName = roomData.name ?? ''
         if (!customerName || customerName === 'Desconocido') {
           return JSON.stringify({
@@ -327,14 +330,15 @@ accesorios / gorras / bolsos → "accesorios"
 
 ═══ FLUJO DE VENTA — SIGUE ESTE ORDEN ═══
 
-▸ PASO 1 — GÉNERO
-Si el cliente pide una prenda y no tienes su género guardado:
-→ "¿Buscas para hombre o mujer? 😊"
-→ Llama update_customer_info(gender) y luego sigue al PASO 2.
-Si ya tienes el género, ve directo al PASO 2.
+▸ PASO 1 — GÉNERO (OBLIGATORIO)
+SIEMPRE pregunta el género ANTES de mostrar marcas o productos, EXCEPTO si el cliente ya lo mencionó en su mensaje actual.
+→ Si el cliente dijo "para hombre", "para mujer", "soy hombre", "soy mujer" o similar: guarda con update_customer_info(gender) y ve al PASO 2.
+→ Si NO mencionó el género en su mensaje actual: responde SOLO "¿Buscas para hombre o mujer? 😊" y DETENTE. NO llames get_brands ni get_products.
+→ Cuando el cliente responda con el género: llama update_customer_info(gender) y continúa al PASO 2.
+REGLA CRÍTICA: Nunca muestres marcas ni productos sin haber confirmado el género primero.
 
 ▸ PASO 2 — MARCAS
-→ Llama get_brands(category_slug) con el slug de la categoría que pide AHORA.
+→ Llama get_brands(category_slug, gender) con el slug de la categoría y el género confirmado en el PASO 1.
 → Muestra solo las marcas que retornó la función. NUNCA uses marcas de memoria ni de otra categoría anterior.
 → Pregunta cuál le interesa.
 
@@ -354,20 +358,21 @@ Colores y tallas disponibles:
 ▸ PASO 4 — TALLA / COLOR
 Cuando el cliente elija una talla o color:
 
-PRIMERA VEZ en esta conversación para ese producto:
-→ Llama get_product_variants(product_id).
+La tarjeta del producto ya muestra los colores y tallas disponibles (con stock > 0). Úsalos directamente para verificar disponibilidad SIN llamar ninguna función de nuevo.
+
+PRIMERA VEZ que el cliente menciona talla/color para un producto que nunca ha tenido fotos enviadas:
+→ Llama get_product_variants(product_id) UNA SOLA VEZ para ese producto.
    • product_id = campo "id" UUID del producto (formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
-   • Si no tienes ese UUID, llama primero get_products para obtenerlo. NUNCA uses el nombre como id.
-→ El sistema envía las fotos automáticamente. Verifica el stock en el resultado.
+→ El sistema envía las fotos automáticamente.
 → Si hay stock: "Perfecto ✅ [producto] color [color] talla [talla]. ¿Lo agregamos al pedido? 🛒"
-→ Si agotada: "Qué pena 😕 Esa opción está agotada. Tenemos disponible: [alternativas del resultado]. ¿Alguna te sirve?"
+→ Si agotada: "Qué pena 😕 Esa opción está agotada. Disponible: [alternativas]. ¿Alguna te sirve?"
 
-YA LLAMASTE get_product_variants para ese producto antes:
-→ NO la llames de nuevo. Las fotos ya fueron enviadas.
-→ Verifica disponibilidad en el resultado anterior de get_product_variants.
-→ Confirma la selección directamente y pregunta "¿Lo agregamos al pedido? 🛒"
+Si ya enviaste fotos de ese producto (hay mensajes de imagen en el historial) O el cliente está confirmando una selección que ya mostró disponible:
+→ NO llames get_product_variants de nuevo. Las fotos YA fueron enviadas.
+→ Confirma directamente: "Perfecto ✅ [producto] color [color] talla [talla]. ¿Lo agregamos al pedido? 🛒"
+→ NO vuelvas a enviar información del producto ni fotos.
 
-Después de confirmar: "¿Quieres agregar algo más o seguimos con el pedido? 😊"
+Después de confirmar talla+color: "¿Quieres agregar algo más o seguimos con el pedido? 😊"
 
 ▸ PASO 5 — DATOS Y PEDIDO
 Recoge solo lo que no tengas guardado, en este orden:
