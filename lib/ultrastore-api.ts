@@ -201,14 +201,33 @@ export async function createOrder(params: {
   const isUUID = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
   const toUUID = (s: string | undefined) => (s && isUUID(s) ? s : null)
 
-  const orderItems = params.items.map((item) => ({
-    order_id: order.id,
-    product_id: toUUID(item.productId),
-    variant_id: toUUID(item.variantId),
-    product_name: item.productName ?? null,
-    quantity: item.quantity,
-    unit_price: item.unitPrice,
-  }))
+  // Fetch real prices from DB to avoid model hallucinating wrong prices
+  const productIds = params.items.map((i) => toUUID(i.productId)).filter(Boolean) as string[]
+  const realPrices: Record<string, number> = {}
+  if (productIds.length > 0) {
+    const { data: priceRows } = await supabaseAdmin
+      .from('products')
+      .select('id, base_price')
+      .in('id', productIds)
+    for (const row of (priceRows ?? [])) realPrices[row.id] = row.base_price
+  }
+
+  const orderItems = params.items.map((item) => {
+    const pid = toUUID(item.productId)
+    const realPrice = pid ? (realPrices[pid] ?? item.unitPrice) : item.unitPrice
+    return {
+      order_id: order.id,
+      product_id: pid,
+      variant_id: toUUID(item.variantId),
+      product_name: item.productName ?? null,
+      quantity: item.quantity,
+      unit_price: realPrice,
+    }
+  })
+
+  // Recalculate subtotal and total with real prices
+  const realSubtotal = orderItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+  const realTotal = realSubtotal + shipping
 
   const { error: itemsErr } = await supabaseAdmin.from('order_items').insert(orderItems)
   if (itemsErr) {
@@ -256,7 +275,12 @@ export async function createOrder(params: {
     }
   }
 
+  // Update order total with real prices if they differ
+  if (realTotal !== total) {
+    await supabaseAdmin.from('orders').update({ total: realTotal }).eq('id', order.id)
+  }
+
   const orderNumber = `US-${order.id.slice(0, 8).toUpperCase()}`
 
-  return { success: true, orderId: order.id, orderNumber, subtotal, total }
+  return { success: true, orderId: order.id, orderNumber, subtotal: realSubtotal, total: realTotal }
 }
