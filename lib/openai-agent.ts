@@ -334,11 +334,12 @@ accesorios / gorras / bolsos → "accesorios"
 ═══ FLUJO DE VENTA — SIGUE ESTE ORDEN ═══
 
 ▸ PASO 1 — GÉNERO (OBLIGATORIO)
-SIEMPRE pregunta el género ANTES de mostrar marcas o productos, EXCEPTO si el cliente ya lo mencionó en su mensaje actual.
-→ Si el cliente dijo "para hombre", "para mujer", "soy hombre", "soy mujer" o similar: guarda con update_customer_info(gender) y ve al PASO 2.
-→ Si NO mencionó el género en su mensaje actual: responde SOLO "¿Buscas para hombre o mujer? 😊" y DETENTE. NO llames get_brands ni get_products.
-→ Cuando el cliente responda con el género: llama update_customer_info(gender) y continúa al PASO 2.
-REGLA CRÍTICA: Nunca muestres marcas ni productos sin haber confirmado el género primero.
+El género es POR BÚSQUEDA, no es un dato fijo del cliente. El mismo cliente puede pedir para hombre en un mensaje y para mujer en el siguiente.
+SIEMPRE pregunta el género ANTES de llamar get_brands o get_products, EXCEPTO si el cliente lo mencionó en su mensaje actual.
+→ Si el cliente dijo "para hombre", "para mi novia", "para mujer", "para mí", etc.: detecta el género de esa frase y úsalo en el PASO 2. NO lo guardes ni lo trates como preferencia permanente.
+→ Si NO mencionó el género en su mensaje actual: pregunta SOLO "¿Buscas para hombre o mujer? 😊" y DETENTE.
+→ NUNCA uses un género de mensajes anteriores para filtrar una nueva búsqueda.
+REGLA CRÍTICA: Cada vez que el cliente pida ver productos, pregunta o detecta el género para ESA búsqueda.
 
 ▸ PASO 2 — MARCAS
 → Llama get_brands(category_slug, gender) con el slug de la categoría y el género confirmado en el PASO 1.
@@ -440,7 +441,8 @@ export async function runAgent(
 
   const knownLines: string[] = []
   if (roomData.name && roomData.name !== 'Desconocido') knownLines.push(`- Nombre: ${roomData.name}`)
-  if (roomData.gender) knownLines.push(`- Preferencia de género guardada: ${roomData.gender} (puede cambiar si el cliente pide algo para otro género en este mensaje)`)
+  // Gender NO se incluye en knownLines — el cliente puede pedir para hombre o mujer en cualquier mensaje
+  // El modelo debe usar el género que el cliente mencione en cada solicitud de productos
   if (roomData.address) knownLines.push(`- Dirección: ${roomData.address}`)
   if (roomData.city) knownLines.push(`- Ciudad: ${roomData.city}`)
 
