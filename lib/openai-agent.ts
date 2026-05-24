@@ -58,14 +58,16 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_products',
-      description: 'Obtiene hasta 5 productos con sus variantes (tallas y colores). Llama esta función SOLO después de que el cliente haya elegido una marca. Filtra siempre por brand_name y category_slug.',
+      description: 'Obtiene productos con sus variantes (tallas y colores). Usa color y size para filtrar cuando el cliente los especifique.',
       parameters: {
         type: 'object',
         properties: {
           category_slug: { type: 'string', description: 'Slug de la categoría (ej: jeans, camisetas)' },
           brand_name: { type: 'string', description: 'Nombre exacto de la marca elegida por el cliente' },
           gender: { type: 'string', description: 'Género: hombre o mujer.' },
-          search: { type: 'string', description: 'Búsqueda libre por nombre de producto (solo si no hay brand_name)' },
+          search: { type: 'string', description: 'Búsqueda libre por nombre de producto' },
+          color: { type: 'string', description: 'Color solicitado por el cliente (ej: azul, negro, blanco)' },
+          size: { type: 'string', description: 'Talla solicitada por el cliente (ej: S, M, L, 8, 10)' },
         },
       },
     },
@@ -164,6 +166,8 @@ async function executeTool(
           gender: args.gender as string | undefined,
           search: args.search as string | undefined,
           brandName: args.brand_name as string | undefined,
+          color: args.color as string | undefined,
+          size: args.size as string | undefined,
         })
         console.log('[get_products] count:', products.length, '| first product variants:', (products[0] as unknown as Record<string, unknown>)?.variants)
         return JSON.stringify(products)
@@ -348,6 +352,9 @@ REGLA CRÍTICA: Cada vez que el cliente pida ver productos, pregunta o detecta e
 
 ▸ PASO 3 — PRODUCTOS
 → Llama get_products(category_slug, brand_name, gender).
+→ Si el cliente especificó un color (ej: "azul", "negro"), pásalo en el parámetro color.
+→ Si el cliente especificó una talla (ej: "talla 8", "M"), pásala en el parámetro size.
+→ SOLO muestra los productos que retornó la función. NUNCA inventes ni agregues productos de memoria.
 → Por cada producto muestra este formato en texto plano:
 
 👕 [nombre exacto del producto]

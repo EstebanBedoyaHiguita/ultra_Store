@@ -64,6 +64,8 @@ export async function getProducts(filters?: {
   gender?: string
   search?: string
   brandName?: string
+  color?: string
+  size?: string
 }): Promise<UltraProduct[]> {
   let query = supabaseAdmin
     .from('products')
@@ -119,7 +121,24 @@ export async function getProducts(filters?: {
     data = fallback
   }
 
-  return (data ?? []) as unknown as UltraProduct[]
+  let products = (data ?? []) as unknown as UltraProduct[]
+
+  // Post-filter by color and/or size on variants
+  const filterColor = filters?.color?.toLowerCase().trim()
+  const filterSize = filters?.size?.toLowerCase().trim()
+  if (filterColor || filterSize) {
+    products = products.filter((p) => {
+      const variants = (p as unknown as { variants: { size: string; color: string; stock: number }[] }).variants ?? []
+      return variants.some((v) => {
+        if ((v.stock ?? 0) === 0) return false
+        const colorMatch = !filterColor || v.color.toLowerCase().includes(filterColor)
+        const sizeMatch = !filterSize || v.size.toLowerCase() === filterSize
+        return colorMatch && sizeMatch
+      })
+    })
+  }
+
+  return products
 }
 
 export async function getProductById(id: string): Promise<UltraProduct | null> {
