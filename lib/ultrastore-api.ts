@@ -100,7 +100,7 @@ export async function getProducts(filters?: {
     query = query.ilike('name', `%${filters.search}%`)
   }
 
-  let { data, error } = await query.order('created_at', { ascending: false }).limit(5)
+  let { data, error } = await query.order('created_at', { ascending: false }).limit(10)
   if (error) { console.error('[ultrastore] getProducts:', error.message); return [] }
 
   // If no results with gender filter and no brand specified, retry without gender
@@ -115,7 +115,7 @@ export async function getProducts(filters?: {
       `)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
-      .limit(5)
+      .limit(10)
     data = fallback
   }
 
