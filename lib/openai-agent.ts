@@ -203,7 +203,7 @@ async function executeTool(
           onRoomUpdate(update)
           if (roomData.id) {
             const { supabaseAdmin } = await import('./supabase')
-            await supabaseAdmin
+            const { error: updateErr } = await supabaseAdmin
               .from('chat_rooms')
               .update({
                 ...(update.name && { customer_name: update.name }),
@@ -213,6 +213,10 @@ async function executeTool(
                 ...(update.phone && { customer_phone: update.phone }),
               })
               .eq('id', roomData.id)
+            if (updateErr) console.error('[update_customer_info] DB error:', updateErr.message)
+            else console.log('[update_customer_info] saved:', JSON.stringify(update))
+          } else {
+            console.warn('[update_customer_info] no roomData.id — data not persisted')
           }
         }
         return JSON.stringify({ success: true })
@@ -426,19 +430,22 @@ Si ya hay fotos en el historial para ese producto:
 ▸ PASO 5 — DATOS Y PEDIDO
 Solo entra aquí cuando el cliente diga que quiere cerrar el pedido.
 
-Paso 5a — Recopila datos que falten (uno por uno):
-- Nombre completo → update_customer_info
-- Dirección → update_customer_info
-- Ciudad → update_customer_info
-- Método de pago → "¿Pagas con Bold (tarjeta/PSE/Nequi) o contraentrega? 💳"
+Paso 5a — Recopila y GUARDA cada dato en el momento que el cliente lo dé:
+- Nombre completo → llama update_customer_info(name) INMEDIATAMENTE al recibirlo
+- Dirección → llama update_customer_info(address) INMEDIATAMENTE al recibirlo
+- Ciudad → llama update_customer_info(city) INMEDIATAMENTE al recibirlo
+- Método de pago → pregunta "¿Pagas con Bold (tarjeta/PSE/Nequi) o contraentrega? 💳" (no se guarda con función)
+NUNCA esperes a tener todos los datos para llamar update_customer_info. Llámala UNA VEZ por cada dato nuevo.
 
 ⚠️ CRÍTICO — RECIBIR EL MÉTODO DE PAGO NO ES CONFIRMACIÓN.
-Paso 5b — Después del método de pago, muestra el resumen con lo que hay en el CARRITO ACTUAL:
+Paso 5b — Después del método de pago, busca la sección "🛒 CARRITO ACTUAL" en tu contexto y copia EXACTAMENTE esos productos en el resumen. NO uses tu memoria ni el historial de conversación para construir el resumen — USA SOLO EL CARRITO.
 "Listo [nombre], te confirmo el pedido:
-[contenido del carrito actual línea por línea]
+[COPIA EXACTA de cada línea del 🛒 CARRITO ACTUAL]
 Envío: $15.000 COP
 Total: $[subtotal del carrito + 15000] COP
 ¿Confirmamos? ✅"
+
+Si el carrito está vacío o no aparece en el contexto, NO muestres resumen — dile al cliente que no hay productos en el carrito todavía.
 
 Paso 5c — Espera "sí", "listo", "confirmo" o confirmación explícita.
 → SOLO ENTONCES llama create_order (sin items — el sistema los toma del carrito).
