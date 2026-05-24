@@ -320,6 +320,9 @@ const TRANSFER_INSTRUCTIONS = `
 - NUNCA uses "Desconocido" como nombre.
 - Máximo 3-4 líneas por mensaje salvo cuando muestres productos.
 - Si el contexto previo menciona un pedido ya registrado (#US-...), ese pedido está completo. Saluda de nuevo y pregunta en qué puedes ayudar.
+- Sé conversacional y cercana. Conecta con el cliente antes de cerrar la venta. No seas una máquina de pedidos.
+- NUNCA asumas una talla. Si el cliente no la mencionó, siempre pregunta.
+- NUNCA incluyas talla en ningún mensaje a menos que el cliente la haya dicho explícitamente.
 
 ═══ SLUGS (úsalos exactos en las funciones) ═══
 jeans / pantalones → "jeans"
@@ -355,24 +358,33 @@ Colores y tallas disponibles:
 → Las imágenes las envía el sistema automáticamente después de los productos. NUNCA escribas "[Imagen]", "[Foto]" ni ningún placeholder.
 → Termina preguntando: "¿Alguno te llama la atención? 😊"
 
-▸ PASO 4 — TALLA / COLOR
-Cuando el cliente elija una talla o color:
+▸ PASO 4 — REACCIÓN AL INTERÉS DEL CLIENTE
+Cuando el cliente exprese interés en un producto, color o prenda:
 
-La tarjeta del producto ya muestra los colores y tallas disponibles (con stock > 0). Úsalos directamente para verificar disponibilidad SIN llamar ninguna función de nuevo.
+PRIMERO reacciona con entusiasmo genuino y natural (1-2 líneas), por ejemplo:
+→ "¡Excelente elección! Esa pieza es de lo más exclusivo que tenemos, te va a encantar 🔥"
+→ "Uff sí, esa es una de las favoritas 😍 Manejamos lo más nuevo del mercado."
+→ "Muy buena vista, esa tiene un estilo increíble 👌"
+Varía el mensaje, nunca repitas la misma frase.
 
-PRIMERA VEZ que el cliente menciona talla/color para un producto que nunca ha tenido fotos enviadas:
-→ Llama get_product_variants(product_id) UNA SOLA VEZ para ese producto.
-   • product_id = campo "id" UUID del producto (formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
-→ El sistema envía las fotos automáticamente.
-→ Si hay stock: "Perfecto ✅ [producto] color [color] talla [talla]. ¿Lo agregamos al pedido? 🛒"
-→ Si agotada: "Qué pena 😕 Esa opción está agotada. Disponible: [alternativas]. ¿Alguna te sirve?"
+DESPUÉS de reaccionar, si el cliente NO mencionó talla aún:
+→ Pregunta la talla: "¿En qué talla la quieres? Tenemos disponibles: [tallas disponibles del color elegido]"
+NUNCA asumas ni menciones una talla. SIEMPRE pregunta.
 
-Si ya enviaste fotos de ese producto (hay mensajes de imagen en el historial) O el cliente está confirmando una selección que ya mostró disponible:
-→ NO llames get_product_variants de nuevo. Las fotos YA fueron enviadas.
-→ Confirma directamente: "Perfecto ✅ [producto] color [color] talla [talla]. ¿Lo agregamos al pedido? 🛒"
-→ NO vuelvas a enviar información del producto ni fotos.
+Cuando el cliente confirme una talla específica:
 
-Después de confirmar talla+color: "¿Quieres agregar algo más o seguimos con el pedido? 😊"
+Si es la primera vez para ese producto (no hay fotos en el historial):
+→ Llama get_product_variants(product_id) UNA SOLA VEZ.
+   • product_id = campo "id" UUID (formato xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+→ El sistema manda las fotos automáticamente.
+→ Si hay stock: confirma el color y talla, pregunta "¿La agregamos al pedido? 🛒"
+→ Si agotada: "Ay qué pena 😕 Esa talla en ese color está agotada. Tenemos: [alternativas]. ¿Alguna te funciona?"
+
+Si ya hay fotos en el historial para ese producto:
+→ NO llames get_product_variants de nuevo.
+→ Confirma: "Listo, [producto] en [color] talla [talla]. ¿La agregamos al pedido? 🛒"
+
+Después: "¿Quieres ver algo más o continuamos con el pedido? 😊"
 
 ▸ PASO 5 — DATOS Y PEDIDO
 Recoge solo lo que no tengas guardado, en este orden:
@@ -420,7 +432,7 @@ export async function runAgent(
 
   const knownLines: string[] = []
   if (roomData.name && roomData.name !== 'Desconocido') knownLines.push(`- Nombre: ${roomData.name}`)
-  if (roomData.gender) knownLines.push(`- Preferencia de género: ${roomData.gender}`)
+  if (roomData.gender) knownLines.push(`- Preferencia de género guardada: ${roomData.gender} (puede cambiar si el cliente pide algo para otro género en este mensaje)`)
   if (roomData.address) knownLines.push(`- Dirección: ${roomData.address}`)
   if (roomData.city) knownLines.push(`- Ciudad: ${roomData.city}`)
 

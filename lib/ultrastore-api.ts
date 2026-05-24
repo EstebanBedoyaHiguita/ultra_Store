@@ -29,12 +29,22 @@ export async function getBrands(filters?: {
     if (cat) query = query.eq('category_id', cat.id)
   }
 
-  if (filters?.gender && filters.gender !== 'unisex') {
-    query = query.in('gender', [filters.gender, 'unisex'])
+  const normalizedGender = filters?.gender?.toLowerCase().trim()
+  if (normalizedGender && normalizedGender !== 'unisex') {
+    query = query.or(`gender.ilike.${normalizedGender},gender.ilike.unisex`)
   }
 
-  const { data, error } = await query
+  let { data, error } = await query
   if (error) { console.error('[ultrastore] getBrands:', error.message); return [] }
+
+  // Fallback sin filtro de género si no hay resultados
+  if ((data ?? []).length === 0 && normalizedGender) {
+    const { data: fallback } = await supabaseAdmin
+      .from('products')
+      .select('brand_id, brand:brands(id, name), variants:product_variants(stock)')
+      .eq('is_active', true)
+    data = fallback
+  }
 
   const seen = new Set<string>()
   const brands: { id: string; name: string }[] = []
@@ -74,6 +84,7 @@ export async function getProducts(filters?: {
     if (cat) query = query.eq('category_id', cat.id)
   }
 
+  const normalizedGender = filters?.gender?.toLowerCase().trim()
   if (filters?.brandName) {
     const { data: brand } = await supabaseAdmin
       .from('brands')
@@ -81,9 +92,8 @@ export async function getProducts(filters?: {
       .ilike('name', `%${filters.brandName}%`)
       .single()
     if (brand) query = query.eq('brand_id', brand.id)
-  } else if (filters?.gender && filters.gender !== 'unisex') {
-    // Only filter by gender when no brand is specified
-    query = query.in('gender', [filters.gender, 'unisex'])
+  } else if (normalizedGender && normalizedGender !== 'unisex') {
+    query = query.or(`gender.ilike.${normalizedGender},gender.ilike.unisex`)
   }
 
   if (filters?.search) {
