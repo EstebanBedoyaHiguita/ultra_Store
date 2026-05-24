@@ -487,8 +487,13 @@ export async function runAgent(
   const currentRoomData = { ...roomData }
   const onRoomUpdate = (update: Partial<RoomKnownData>) => { Object.assign(currentRoomData, update) }
 
+  const isFirstMessage = conversationHistory.length === 0 && !contextSummary
+  const greetingInstruction = isFirstMessage
+    ? `\n⚠️ PRIMER MENSAJE DEL CLIENTE: Es un usuario nuevo. Preséntate con entusiasmo: dí tu nombre (Isabela), que eres asesora de UltraStore, y pregunta en qué puedes ayudar. No hagas más preguntas en ese mensaje.\n`
+    : ''
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt + summarySection + TRANSFER_INSTRUCTIONS },
+    { role: 'system', content: systemPrompt + summarySection + greetingInstruction + TRANSFER_INSTRUCTIONS },
     ...conversationHistory.slice(-12).map((m) => ({
       role: (m.direction === 'inbound' ? 'user' : 'assistant') as 'user' | 'assistant',
       content: m.content,
