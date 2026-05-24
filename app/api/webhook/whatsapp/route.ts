@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions'
 import { supabaseAdmin } from '@/lib/supabase'
 import { parseWhatsAppPayload, parseInstagramPayload, sendChannelMessage, sendChannelImage, extractImageUrls, markWhatsAppMessageRead, getWhatsAppMediaAsBase64 } from '@/lib/meta'
 import { runAgent, summarizeHistory, RoomKnownData, AgentProduct } from '@/lib/openai-agent'
+import { getCart } from '@/lib/ultrastore-api'
 import { checkKeywordRules, DEFAULT_TRANSFER_RULES } from '@/lib/transfer-rules'
 import type { ChannelType } from '@/types'
 
@@ -112,6 +113,7 @@ async function processMessage(parsed: {
       close_reason: null,
       closed_by: null,
       context_summary: null,
+      cart: [],
       window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     }).eq('id', room.id)
     room = { ...room, status: 'bot', context_summary: null }
@@ -171,6 +173,8 @@ async function processMessage(parsed: {
     phone: room.customer_phone || undefined,
   }
 
+  const cart = await getCart(room.id)
+
   const agentResponse = await runAgent(
     parsed.text || (parsed.mediaType === 'image' ? 'El cliente envió una imagen.' : ''),
     history.map((m) => ({
@@ -184,7 +188,8 @@ async function processMessage(parsed: {
     config?.temperature ?? 0.7,
     room.context_summary ?? '',
     roomData,
-    imageMediaUrl
+    imageMediaUrl,
+    cart
   )
 
   const { cleanText } = extractImageUrls(agentResponse.text)

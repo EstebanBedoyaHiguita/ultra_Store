@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { getProducts, getCategories, getBrands, getProductVariants, getProductById, createOrder } from './ultrastore-api'
+import { getProducts, getCategories, getBrands, getProductVariants, getProductById, createOrder, addToCart, getCart, clearCart } from './ultrastore-api'
 import { checkIntentRules } from './transfer-rules'
 import type { IMessage, ITransferRule } from '@/types'
 
@@ -106,34 +106,37 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'create_order',
-      description: 'OBLIGATORIO: Registra el pedido en el sistema cuando el cliente confirme. NUNCA escribas el resumen del pedido sin haber llamado esta función. Retorna orderNumber y total reales — usa SOLO esos valores.',
+      name: 'add_to_cart',
+      description: 'Agrega un producto al carrito del cliente. Llama esta función CADA VEZ que el cliente confirme una talla y color de un producto. El sistema guarda el precio real automáticamente.',
       parameters: {
         type: 'object',
         properties: {
-          items: {
-            type: 'array',
-            description: 'Productos del pedido',
-            items: {
-              type: 'object',
-              properties: {
-                product_id: { type: 'string', description: 'ID del producto de get_products' },
-                variant_id: { type: 'string', description: 'ID del variant (talla/color) de get_product_variants' },
-                product_name: { type: 'string', description: 'Nombre del producto' },
-                size: { type: 'string', description: 'Talla elegida' },
-                quantity: { type: 'number', description: 'Cantidad' },
-                unit_price: { type: 'number', description: 'Precio unitario en COP' },
-              },
-              required: ['product_name', 'quantity', 'unit_price'],
-            },
-          },
+          product_id: { type: 'string', description: 'UUID del producto de get_products' },
+          product_name: { type: 'string', description: 'Nombre del producto' },
+          color: { type: 'string', description: 'Color elegido' },
+          size: { type: 'string', description: 'Talla elegida' },
+          quantity: { type: 'number', description: 'Cantidad (default 1)' },
+          unit_price: { type: 'number', description: 'Precio unitario en COP (el sistema lo verifica)' },
+        },
+        required: ['product_name', 'color', 'size', 'quantity', 'unit_price'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_order',
+      description: 'Registra el pedido SOLO cuando el cliente confirme explícitamente el resumen. Los productos se toman del carrito guardado — NO necesitas pasarlos aquí.',
+      parameters: {
+        type: 'object',
+        properties: {
           address: { type: 'string', description: 'Dirección de entrega' },
           city: { type: 'string', description: 'Ciudad' },
           department: { type: 'string', description: 'Departamento' },
           payment_method: { type: 'string', enum: ['bold', 'contraentrega'], description: 'Método de pago' },
           notes: { type: 'string', description: 'Notas adicionales (opcional)' },
         },
-        required: ['items', 'address', 'city', 'payment_method'],
+        required: ['address', 'city', 'payment_method'],
       },
     },
   },
@@ -214,8 +217,20 @@ async function executeTool(
         }
         return JSON.stringify({ success: true })
       }
+      case 'add_to_cart': {
+        if (!roomData.id) return JSON.stringify({ error: 'No hay sala activa' })
+        const cart = await addToCart(roomData.id, {
+          product_id: (args.product_id as string) ?? null,
+          product_name: args.product_name as string,
+          color: args.color as string,
+          size: args.size as string,
+          quantity: (args.quantity as number) ?? 1,
+          unit_price: args.unit_price as number,
+        })
+        const cartText = cart.map((i) => `${i.quantity}x ${i.product_name} ${i.color} talla ${i.size} — $${i.unit_price.toLocaleString('es-CO')} COP`).join('\n')
+        return JSON.stringify({ success: true, cart_summary: cartText, total_items: cart.length })
+      }
       case 'create_order': {
-        console.log('[create_order] items recibidos:', JSON.stringify(args.items))
         const customerName = roomData.name ?? ''
         if (!customerName || customerName === 'Desconocido') {
           return JSON.stringify({
@@ -225,10 +240,13 @@ async function executeTool(
         }
         if (!roomData.id) return JSON.stringify({ status: 'error', instruction: 'No hay sala de conversación activa.' })
 
-        const rawItems = args.items as Array<{
-          product_id?: string; variant_id?: string; product_name: string
-          size?: string; quantity: number; unit_price: number
-        }>
+        // Read items from DB cart
+        const cartItems = await getCart(roomData.id)
+        if (cartItems.length === 0) {
+          return JSON.stringify({ status: 'error', instruction: 'El carrito está vacío. El cliente debe agregar productos antes de crear el pedido.' })
+        }
+
+        console.log('[create_order] cart items:', JSON.stringify(cartItems))
 
         const result = await createOrder({
           roomId: roomData.id,
@@ -239,9 +257,8 @@ async function executeTool(
           department: (args.department as string) ?? '',
           notes: args.notes as string | undefined,
           paymentMethod: (args.payment_method as 'bold' | 'contraentrega') ?? 'contraentrega',
-          items: rawItems.map((i) => ({
+          items: cartItems.map((i) => ({
             productId: i.product_id ?? '',
-            variantId: i.variant_id,
             productName: i.product_name,
             size: i.size,
             quantity: i.quantity,
@@ -249,6 +266,7 @@ async function executeTool(
           })),
         })
 
+        if (result.success) await clearCart(roomData.id)
         return JSON.stringify(result)
       }
       default:
@@ -398,36 +416,36 @@ Si ya hay fotos en el historial para ese producto:
 → NO llames get_product_variants de nuevo.
 → Confirma: "Listo, [producto] [color] talla [talla] agregado 🛒"
 
-⚠️ CRÍTICO — DESPUÉS DE CONFIRMAR UNA TALLA:
-→ SIEMPRE pregunta: "¿Quieres ver algo más o con esto cerramos el pedido? 😊"
-→ NUNCA pidas datos de envío ni método de pago en este momento.
-→ NUNCA asumas que el cliente terminó de agregar productos.
-→ Acumula mentalmente todos los productos que el cliente vaya confirmando (pueden ser varios).
-→ Solo avanza al PASO 5 cuando el cliente diga explícitamente que quiere proceder con el pedido.
+⚠️ CRÍTICO — CUANDO EL CLIENTE CONFIRMA UNA TALLA Y COLOR:
+→ Llama INMEDIATAMENTE add_to_cart con product_id, product_name, color, size, quantity=1, unit_price.
+→ Confirma: "Listo, [producto] [color] talla [talla] agregado al carrito 🛒"
+→ Luego pregunta: "¿Quieres ver algo más o con esto cerramos el pedido? 😊"
+→ NUNCA pidas datos de envío ni método de pago todavía.
+→ El carrito se muestra en el sistema — no necesitas recordar los productos anteriores.
 
 ▸ PASO 5 — DATOS Y PEDIDO
-Solo entra a este paso cuando el cliente diga que quiere cerrar/proceder con el pedido.
-Recoge solo lo que no tengas guardado, en este orden:
-a) Nombre completo → llama update_customer_info
-b) Dirección de entrega → llama update_customer_info
-c) Ciudad
-d) Método de pago: "¿Pagas con Bold (tarjeta/PSE/Nequi) o contraentrega? 💳"
+Solo entra aquí cuando el cliente diga que quiere cerrar el pedido.
 
-Cuando tengas todo, muestra el resumen con TODOS los productos acumulados:
-"Listo, te confirmo el pedido:
-[qty]x [producto 1] color [color] talla [talla]: $[precio] COP
-[qty]x [producto 2] color [color] talla [talla]: $[precio] COP
-...
-Envío: $15.000 COP (Medellín y área metropolitana)
-Total: $[total] COP
+Paso 5a — Recopila datos que falten (uno por uno):
+- Nombre completo → update_customer_info
+- Dirección → update_customer_info
+- Ciudad → update_customer_info
+- Método de pago → "¿Pagas con Bold (tarjeta/PSE/Nequi) o contraentrega? 💳"
+
+⚠️ CRÍTICO — RECIBIR EL MÉTODO DE PAGO NO ES CONFIRMACIÓN.
+Paso 5b — Después del método de pago, muestra el resumen con lo que hay en el CARRITO ACTUAL:
+"Listo [nombre], te confirmo el pedido:
+[contenido del carrito actual línea por línea]
+Envío: $15.000 COP
+Total: $[subtotal del carrito + 15000] COP
 ¿Confirmamos? ✅"
 
-→ Espera que el cliente diga "sí", "listo", "confirmo" u otra confirmación explícita.
-→ Llama create_order con TODOS los productos acumulados. NO inventes totales ni números de pedido.
+Paso 5c — Espera "sí", "listo", "confirmo" o confirmación explícita.
+→ SOLO ENTONCES llama create_order (sin items — el sistema los toma del carrito).
 → Solo después del éxito de create_order escribe:
 
 ✅ Pedido registrado #[orderNumber real]
-[qty]x [producto] color [color] talla [talla]: $[precio] COP
+[qty]x [producto] [color] talla [talla]: $[precio] COP
 Subtotal: $[subtotal real] COP
 Envío: $15.000 COP
 Total: $[total real] COP
@@ -448,7 +466,8 @@ export async function runAgent(
   temperature = 0.7,
   contextSummary = '',
   roomData: RoomKnownData = {},
-  mediaUrl?: string
+  mediaUrl?: string,
+  cartItems: import('./ultrastore-api').CartItem[] = []
 ): Promise<AgentResponse> {
   const summarySection = contextSummary ? `\nCONTEXTO PREVIO:\n${contextSummary}\n` : ''
 
@@ -458,6 +477,12 @@ export async function runAgent(
   // El modelo debe usar el género que el cliente mencione en cada solicitud de productos
   if (roomData.address) knownLines.push(`- Dirección: ${roomData.address}`)
   if (roomData.city) knownLines.push(`- Ciudad: ${roomData.city}`)
+
+  if (cartItems.length > 0) {
+    const cartLines = cartItems.map((i) => `  • ${i.quantity}x ${i.product_name} ${i.color} talla ${i.size} — $${i.unit_price.toLocaleString('es-CO')} COP`).join('\n')
+    const cartSubtotal = cartItems.reduce((s, i) => s + i.unit_price * i.quantity, 0)
+    knownLines.push(`\n🛒 CARRITO ACTUAL (ya confirmado por el cliente):\n${cartLines}\n  Subtotal: $${cartSubtotal.toLocaleString('es-CO')} COP`)
+  }
 
   const currentRoomData = { ...roomData }
   const onRoomUpdate = (update: Partial<RoomKnownData>) => { Object.assign(currentRoomData, update) }

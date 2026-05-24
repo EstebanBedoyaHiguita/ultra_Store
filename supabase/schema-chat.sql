@@ -8,6 +8,9 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'ecommerce';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS chat_room_id UUID;
 
 -- 1b. Agregar product_name a order_items para mostrar nombres aunque product_id sea null
+
+-- 1c. Carrito persistente por conversación
+ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS cart JSONB DEFAULT '[]';
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_name TEXT;
 
 -- 2. Salas de conversación (una por cliente/canal)

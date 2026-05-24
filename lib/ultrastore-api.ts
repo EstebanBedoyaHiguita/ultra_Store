@@ -1,6 +1,42 @@
 import { supabaseAdmin } from './supabase'
 import type { UltraProduct, UltraCategory } from '@/types'
 
+export interface CartItem {
+  product_id: string | null
+  product_name: string
+  color: string
+  size: string
+  quantity: number
+  unit_price: number
+}
+
+export async function getCart(roomId: string): Promise<CartItem[]> {
+  const { data } = await supabaseAdmin.from('chat_rooms').select('cart').eq('id', roomId).single()
+  return (data?.cart as CartItem[]) ?? []
+}
+
+export async function addToCart(roomId: string, item: CartItem): Promise<CartItem[]> {
+  // Fetch real price from DB if product_id is valid UUID
+  const isUUID = (s: string | null) => s ? /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) : false
+  if (isUUID(item.product_id)) {
+    const { data: p } = await supabaseAdmin.from('products').select('base_price').eq('id', item.product_id).single()
+    if (p) item.unit_price = p.base_price
+  }
+
+  const current = await getCart(roomId)
+  // Replace if same product+color+size already in cart
+  const idx = current.findIndex((i) => i.product_id === item.product_id && i.color.toLowerCase() === item.color.toLowerCase() && i.size.toLowerCase() === item.size.toLowerCase())
+  if (idx >= 0) current[idx] = item
+  else current.push(item)
+
+  await supabaseAdmin.from('chat_rooms').update({ cart: current }).eq('id', roomId)
+  return current
+}
+
+export async function clearCart(roomId: string): Promise<void> {
+  await supabaseAdmin.from('chat_rooms').update({ cart: [] }).eq('id', roomId)
+}
+
 export async function getCategories(): Promise<UltraCategory[]> {
   const { data, error } = await supabaseAdmin
     .from('categories')
